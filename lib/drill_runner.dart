@@ -74,21 +74,25 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
   Future<bool> _waitForFileReady(String path) async {
     final file = File(path);
     int attempts = 0;
-    while (attempts < 10) {
+    int lastSize = -1;
+    // Poll for up to 10 seconds (20 * 500ms) to ensure slow Android devices finish writing.
+    while (attempts < 20) { 
       if (await file.exists()) {
-        final len = await file.length();
-        if (len > 0) {
-          try {
+            final len = await file.length();
+            // Ensure size is > 0 and has stopped growing
+            if (len > 0 && len == lastSize) {
+              try {
             // Attempt to open the file; if it fails, it's still locked by the camera OS
             final raf = await file.open(mode: FileMode.read);
             await raf.close();
             return true;
           } catch (e) {
-            debugPrint("File still locked by camera, waiting... $e");
+                debugPrint("File still locked by camera, waiting... $e");
+              }
+            }
+            lastSize = len; // Track size to ensure write completion
           }
-        }
-      }
-      await Future.delayed(const Duration(milliseconds: 500));
+          await Future.delayed(const Duration(milliseconds: 500));
       attempts++;
     }
     return false;
@@ -127,9 +131,9 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
             setState(() => _isProcessingVideo = true);
 
             try {
-              // FIX: Increased handoff delay to guarantee File OS flush before read locks
-              await Future.delayed(const Duration(milliseconds: 2000));
-              final isReady = await _waitForFileReady(finalPath!);
+                // FIX: Removed arbitrary delay. Rely on enhanced polling to detect file release.
+                final isReady = await _waitForFileReady(finalPath!);
+
               
               if (isReady) {
                 final brandedPath = await BrandingService().applyBranding(
