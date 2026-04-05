@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../data/repositories.dart';
 import 'models.dart';
 import 'drill_engine.dart';
 
@@ -184,8 +185,6 @@ final calloutsProvider = AsyncNotifierProvider<CalloutsNotifier, List<Callout>>(
 });
 
 class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
-  static const _keyCustomCallouts = 'custom_callouts_v1';
-
   final List<Callout> _defaults = [
     const Callout(id: 'shot', nameEn: 'Shot', nameEs: 'Tiro', type: 'Movement'),
     const Callout(id: 'sprawl', nameEn: 'Sprawl', nameEs: 'Sprawl', type: 'Movement'),
@@ -197,7 +196,6 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
     const Callout(id: 'snap_down', nameEn: 'Snap Down', nameEs: 'Jalón', type: 'Movement'),
     const Callout(id: 'high_knees', nameEn: 'High Knees', nameEs: 'Rodillas Altas', type: 'Movement'),
     const Callout(id: 'foot_fire', nameEn: 'Foot Fire', nameEs: 'Fuego Pies', type: 'Duration', defaultDurationSeconds: 5, audioAssetAlias: 'foot_fire5'),
-    // FIXED: Added 45s variant and kept 60s
     const Callout(id: 'hand_fight_15', nameEn: 'Hand Fight (15s)', nameEs: 'Manos (15s)', type: 'Duration', defaultDurationSeconds: 15, audioAssetAlias: 'hand_15'),
     const Callout(id: 'hand_fight_30', nameEn: 'Hand Fight (30s)', nameEs: 'Manos (30s)', type: 'Duration', defaultDurationSeconds: 30, audioAssetAlias: 'hand_30'),
     const Callout(id: 'hand_fight_45', nameEn: 'Hand Fight (45s)', nameEs: 'Manos (45s)', type: 'Duration', defaultDurationSeconds: 45, audioAssetAlias: 'hand_45'),
@@ -207,18 +205,10 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
   @override
   Future<List<Callout>> build() async {
     final prefs = await ref.watch(sharedPrefsProvider.future);
-    final jsonString = prefs.getString(_keyCustomCallouts);
     
-    List<Callout> customCallouts = [];
-    
-    if (jsonString != null) {
-      try {
-        final List<dynamic> decoded = jsonDecode(jsonString);
-        customCallouts = decoded.map((e) => Callout.fromJson(e)).toList();
-      } catch (e) {
-        print("Error loading custom callouts: $e");
-      }
-    }
+    // Utilize the newly unified repository
+    final repo = LocalCalloutRepository(prefs);
+    final customCallouts = repo.getCustomCallouts();
 
     return [..._defaults, ...customCallouts];
   }
@@ -259,10 +249,10 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
 
   Future<void> _saveToDisk() async {
     final prefs = await ref.read(sharedPrefsProvider.future);
-    final currentList = state.value ?? [];
-    final customOnly = currentList.where((c) => c.isCustom).toList();
-    final jsonString = jsonEncode(customOnly.map((c) => c.toMap()).toList());
-    await prefs.setString(_keyCustomCallouts, jsonString);
+    
+    // Utilize the unified repository to save
+    final repo = LocalCalloutRepository(prefs);
+    await repo.saveCustomCallouts(state.value ?? []);
   }
 }
 

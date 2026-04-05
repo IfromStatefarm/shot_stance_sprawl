@@ -1,11 +1,44 @@
 // lib/data/repositories.dart
 import 'dart:io';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-
-// ✅ correct path to your models
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../features/drill/models.dart';
+
+/// Local Repository replacing the redundant Firebase Firestore/Storage implementation.
+/// Unifies the "Split Brain" by keeping all custom audio and metadata local.
+/// This prevents exorbitant Firebase bandwidth costs for a Freemium app, 
+/// allows the app to work offline in gyms with poor cell service, and keeps 
+/// the architecture decoupled from the state management providers.
+class LocalCalloutRepository {
+  static const _keyCustomCallouts = 'custom_callouts_v1';
+  final SharedPreferences prefs;
+
+  LocalCalloutRepository(this.prefs);
+
+  /// Retrieves the list of custom callouts saved locally
+  List<Callout> getCustomCallouts() {
+    final jsonString = prefs.getString(_keyCustomCallouts);
+    if (jsonString == null) return [];
+    
+    try {
+      final List<dynamic> decoded = jsonDecode(jsonString);
+      return decoded.map((e) => Callout.fromJson(e)).toList();
+    } catch (e) {
+      // Return empty gracefully if local data is corrupted
+      return [];
+    }
+  }
+
+  /// Persists the custom callouts to the device
+  Future<void> saveCustomCallouts(List<Callout> callouts) async {
+    // Ensure we only save the custom ones, not the hardcoded defaults
+    final customOnly = callouts.where((c) => c.isCustom).toList();
+    final jsonString = jsonEncode(customOnly.map((c) => c.toMap()).toList());
+    
+    await prefs.setString(_keyCustomCallouts, jsonString);
+  }
+}
 
 class UserRepository {
   final FirebaseFirestore db;
