@@ -272,8 +272,8 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
  Future<void> _fire(List<Callout> selected, DrillConfig cfg, int session) async {
     if (session != _globalSessionId || state.finished || selected.isEmpty) return;
 
-    final next = _pickRandomCallout(selected);
-    _lastCalloutId = next.id;
+    final next = _nextCalloutToPlay ?? _pickRandomCallout(selected);
+    _lastCalloutId = next.id; 
 
     unawaited(HapticFeedback.lightImpact());
     
@@ -316,6 +316,10 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
 
   void _scheduleNext(double delaySeconds, DrillConfig cfg, List<Callout> selected, int session) {
     _nextTimer?.cancel();
+    
+    _nextCalloutToPlay = _pickRandomCallout(selected);
+    _preloadAudioForNext(_nextCalloutToPlay!, cfg);
+
     _nextTimer = Timer(
       Duration(milliseconds: (delaySeconds * 1000).round()),
       () {
@@ -449,18 +453,21 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
     if (_isStoppingVideo || _cameraController == null) return;
     if (!_cameraController!.value.isRecordingVideo) return;
 
-    _isStoppingVideo = true;
+  Callout? _nextCalloutToPlay;
+
+  Future<void> _preloadAudioForNext(Callout c, DrillConfig config) async {
+    if (_playerPool.isEmpty) return;
+    final p = _playerPool[_poolIndex]; // Assign to the upcoming player, do not advance index
+    final customPath = config.customAudioPaths[c.id];
     try {
-      final XFile rawVideo = await _cameraController!.stopVideoRecording();
-      state = state.copyWith(
-        isRecording: false,
-        videoPath: rawVideo.path, 
-      );
-    } catch (e) {
-      state = state.copyWith(isRecording: false);
-    } finally {
-      _isStoppingVideo = false;
-    }
+      if (customPath != null && File(customPath).existsSync()) {
+        await p.setDeviceFile(customPath);
+      } else {
+        final targetId = c.audioAssetAlias ?? c.id;
+        final asset = _assetForId[targetId];
+        if (asset != null) await p.setAsset(asset);
+      }
+    } catch (_) {}
   }
 
   // BUG FIX: Pooled custom audio to stop UI stutter
@@ -470,17 +477,8 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
     final p = _playerPool[_poolIndex];
     _poolIndex = (_poolIndex + 1) % _playerPool.length;
 
-    final customPath = config.customAudioPaths[c.id];
-    
     try {
-      if (customPath != null && File(customPath).existsSync()) {
-        await p.setDeviceFile(customPath);
-      } else {
-        final targetId = c.audioAssetAlias ?? c.id;
-        final asset = _assetForId[targetId];
-        if (asset != null) await p.setAsset(asset);
-      }
-      if (session == _globalSessionId) await p.play();
+      if (session == _globalSessionId) await p.play(); // Instant execution, no disk I/O
     } catch (_) {
       unawaited(HapticFeedback.mediumImpact());
     }
