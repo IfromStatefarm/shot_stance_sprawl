@@ -277,8 +277,8 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
 
     unawaited(HapticFeedback.lightImpact());
     
-    // Non-blocking fire
-    _playCallout(next, session, cfg);
+    //  Await the audio playback to finish before starting the interval/duration timers
+    await _playCallout(next, session, cfg);
 
     if (session != _globalSessionId) return;
     final newCount = state.calloutsCompleted + 1;
