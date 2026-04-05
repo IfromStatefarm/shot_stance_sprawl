@@ -273,7 +273,7 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
     if (session != _globalSessionId || state.finished || selected.isEmpty) return;
 
     final next = _nextCalloutToPlay ?? _pickRandomCallout(selected);
-    _lastCalloutId = next.id; 
+    _lastCalloutId = next.id;
 
     unawaited(HapticFeedback.lightImpact());
     
@@ -452,12 +452,23 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
   Future<void> _stopAndSaveVideo() async {
     if (_isStoppingVideo || _cameraController == null) return;
     if (!_cameraController!.value.isRecordingVideo) return;
+    
+    _isStoppingVideo = true;
+    try {
+      final file = await _cameraController!.stopVideoRecording();
+      state = state.copyWith(videoPath: file.path);
+    } catch (e) {
+      debugPrint('[camera] Error saving video: $e');
+    } finally {
+      _isStoppingVideo = false;
+    }
+  }
 
   Callout? _nextCalloutToPlay;
 
   Future<void> _preloadAudioForNext(Callout c, DrillConfig config) async {
     if (_playerPool.isEmpty) return;
-    final p = _playerPool[_poolIndex]; // Assign to the upcoming player, do not advance index
+    final p = _playerPool[_poolIndex]; // Assign to the upcoming player, do not advance index yet
     final customPath = config.customAudioPaths[c.id];
     try {
       if (customPath != null && File(customPath).existsSync()) {
