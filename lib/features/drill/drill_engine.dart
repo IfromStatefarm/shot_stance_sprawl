@@ -119,7 +119,7 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
     return DrillState.idle(const Duration(minutes: 5));
   }
 
-  // Handle Memory Leaks if app is backgrounded
+  // Handle Memory Leaks if app is backgrounded   
   @override
   void didChangeAppLifecycleState(AppLifecycleState appState) {
     if (appState == AppLifecycleState.inactive || appState == AppLifecycleState.paused) {
@@ -340,7 +340,7 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
       _cancelTimers();
       _stopwatch.stop();
 
-      // FIX: Synchronize Stop Lock
+      //  Synchronize Stop Lock
       // If the ticker already triggered _stopAndSaveVideo (due to the 60s limit),
       // we must wait for it to finish rather than skipping it.
       if (_isStoppingVideo) {

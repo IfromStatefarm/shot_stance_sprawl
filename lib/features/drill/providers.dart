@@ -13,7 +13,9 @@ final sharedPrefsProvider = FutureProvider<SharedPreferences>((ref) async {
 });
 
 final languageProvider = StateProvider<String>((ref) => 'en');
-final showCalloutButtonsProvider = StateProvider<bool>((ref) => true);
+
+// REFACTORED: showCalloutButtonsProvider is now adLibEnabledProvider
+final adLibEnabledProvider = StateProvider<bool>((ref) => true);
 
 final isProProvider = NotifierProvider<IsProNotifier, bool>(() {
   return IsProNotifier();

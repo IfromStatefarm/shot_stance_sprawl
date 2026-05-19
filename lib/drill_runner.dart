@@ -70,7 +70,7 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
     super.dispose();
   }
 
-  // FIX: Added robust file lock checking by attempting to open the file in read mode
+  // Added robust file lock checking by attempting to open the file in read mode
   Future<bool> _waitForFileReady(String path) async {
     final file = File(path);
     int attempts = 0;
@@ -131,7 +131,7 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
             setState(() => _isProcessingVideo = true);
 
             try {
-                // FIX: Removed arbitrary delay. Rely on enhanced polling to detect file release.
+                // Removed arbitrary delay. Rely on enhanced polling to detect file release.
                 final isReady = await _waitForFileReady(finalPath!);
 
               
@@ -319,39 +319,9 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
               child: _CountdownOverlay(value: _showGo ? 'GO!' : '${_count ?? ''}'),
             ),
 
-          if (_isProcessingVideo)
+         if (_isProcessingVideo)
             Positioned.fill(
-              child: Container(
-                color: Colors.black87,
-                alignment: Alignment.center,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const CircularProgressIndicator(color: Colors.white),
-                    const SizedBox(height: 20),
-                    const Text(
-                      "Finalizing Video...",
-                      style: TextStyle(
-                        color: Colors.white, 
-                        fontSize: 18, 
-                        fontWeight: FontWeight.bold,
-                        decoration: TextDecoration.none,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      ref.watch(isProProvider) 
-                          ? "Processing raw high-quality file..." 
-                          : "Adding Branding Watermark & Saving...",
-                      style: const TextStyle(
-                        color: Colors.white70, 
-                        fontSize: 14, 
-                        decoration: TextDecoration.none,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              child: const _VideoProcessingOverlay(),
             ),
         ], 
       ), 
@@ -469,6 +439,87 @@ class _InfoTile extends StatelessWidget {
       leading: Icon(icon, color: Theme.of(context).colorScheme.primary),
       title: Text(label),
       trailing: Text(value, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+    );
+  }
+}
+// The  video processing overlay is a critical UX component that appears after the drill ends while the app finalizes the video file. It features a sleek loading animation and informative text to keep users engaged during this potentially lengthy process, especially on slower devices. The overlay also handles both Free and Pro user flows, providing tailored messaging based on the user's subscription status. By blocking interaction with the underlying UI, it prevents any accidental taps that could disrupt the processing workflow. Overall, this overlay transforms what could be a frustrating wait into a polished and reassuring experience for users as they await their drill summary video.
+class _VideoProcessingOverlay extends StatefulWidget {
+  const _VideoProcessingOverlay();
+
+  @override
+  State<_VideoProcessingOverlay> createState() => _VideoProcessingOverlayState();
+}
+
+class _VideoProcessingOverlayState extends State<_VideoProcessingOverlay> {
+  late VideoPlayerController _controller;
+  bool _initialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.asset('assets/images/kkwloading_page.mp4')
+      ..initialize().then((_) {
+        _controller.setLooping(true);
+        _controller.setVolume(0.0); // Keep processing silent
+        _controller.play();
+        setState(() => _initialized = true);
+      });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isPro = ref.watch(isProProvider);
+    
+    return Container(
+      color: Colors.black,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (_initialized)
+            SizedBox.expand(
+              child: FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: _controller.value.size.width,
+                  height: _controller.value.size.height,
+                  child: VideoPlayer(_controller),
+                ),
+              ),
+            ),
+          Container(color: Colors.black38), // Elegant translucent layer for legibility
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(color: Colors.white),
+              const SizedBox(height: 20),
+              const Text(
+                "Finalizing Video...",
+                style: TextStyle(
+                  color: Colors.white, 
+                  fontSize: 18, 
+                  fontWeight: FontWeight.bold,
+                  decoration: TextDecoration.none,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                isPro ? "Processing raw high-quality file..." : "Adding Branding Watermark & Saving...",
+                style: const TextStyle(
+                  color: Colors.white70, 
+                  fontSize: 14, 
+                  decoration: TextDecoration.none,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

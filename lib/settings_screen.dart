@@ -366,6 +366,7 @@ class _AddCalloutSheetState extends ConsumerState<_AddCalloutSheet> {
   
   bool _isRecording = false;
   String? _tempPath;
+  int _selectedDuration = 0;
 
   @override
   void dispose() {
@@ -400,7 +401,8 @@ class _AddCalloutSheetState extends ConsumerState<_AddCalloutSheet> {
       id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
       nameEn: _nameController.text,
       nameEs: _nameController.text, 
-      type: 'Movement',
+      type: _selectedDuration > 0 ? 'Duration' : 'Movement', // Set type based on whether duration was specified
+      defaultDurationSeconds: _selectedDuration, // Store duration if set
       audioUrl: _tempPath,
       isCustom: true,
     );
@@ -434,6 +436,24 @@ class _AddCalloutSheetState extends ConsumerState<_AddCalloutSheet> {
             ),
           ),
           const SizedBox(height: 20),
+          
+          Text(isEs ? 'Tipo de Comando' : 'Callout Type', style: const TextStyle(fontWeight: FontWeight.bold)),
+      const SizedBox(height: 8),
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SegmentedButton<int>(
+          segments: const [
+            ButtonSegment(value: 0, label: Text('Action')),
+            ButtonSegment(value: 15, label: Text('15s')),
+            ButtonSegment(value: 30, label: Text('30s')),
+            ButtonSegment(value: 45, label: Text('45s')),
+            ButtonSegment(value: 60, label: Text('60s')),
+          ],
+          selected: {_selectedDuration},
+          onSelectionChanged: (newSelection) => setState(() => _selectedDuration = newSelection.first),
+        ),
+      ),
+      const SizedBox(height: 20),
           
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
