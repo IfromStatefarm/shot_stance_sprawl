@@ -468,7 +468,7 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
 
   Future<void> _preloadAudioForNext(Callout c, DrillConfig config) async {
     if (_playerPool.isEmpty) return;
-    final p = _playerPool[_poolIndex]; // Assign to the upcoming player, do not advance index yet
+    final p = _playerPool[_poolIndex]; 
     final customPath = config.customAudioPaths[c.id];
     try {
       if (customPath != null && File(customPath).existsSync()) {
@@ -481,7 +481,7 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
     } catch (_) {}
   }
 
-  // BUG FIX: Pooled custom audio to stop UI stutter
+  // FIX: Explicitly separated and named play method to avoid scope duplication
   Future<void> _playCallout(Callout c, int session, DrillConfig config) async {
     if (_playerPool.isEmpty || session != _globalSessionId) return;
 
@@ -489,7 +489,15 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
     _poolIndex = (_poolIndex + 1) % _playerPool.length;
 
     try {
-      if (session == _globalSessionId) await p.play(); // Instant execution, no disk I/O
+      final customPath = config.customAudioPaths[c.id];
+      if (customPath != null && File(customPath).existsSync()) {
+        await p.setDeviceFile(customPath);
+      } else {
+        final targetId = c.audioAssetAlias ?? c.id;
+        final asset = _assetForId[targetId];
+        if (asset != null) await p.setAsset(asset);
+      }
+      if (session == _globalSessionId) await p.play();
     } catch (_) {
       unawaited(HapticFeedback.mediumImpact());
     }

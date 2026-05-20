@@ -51,12 +51,12 @@ class SettingsScreen extends ConsumerWidget {
               },
             ),
           ),
-          SwitchListTile(
+         SwitchListTile(
             secondary: const Icon(Icons.touch_app),
             title: Text(currentLang == 'es' ? 'Botones en pantalla' : 'Show Callout Buttons'),
             subtitle: Text(currentLang == 'es' ? 'Controles manuales' : 'Manual triggers on screen'),
-            value: ref.watch(showCalloutButtonsProvider),
-            onChanged: (v) => ref.read(showCalloutButtonsProvider.notifier).state = v,
+            value: ref.watch(adLibEnabledProvider),
+            onChanged: (v) => ref.read(adLibEnabledProvider.notifier).state = v,
           ),
 
           const Divider(),

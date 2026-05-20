@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:camera/camera.dart'; 
+import 'package:video_player/video_player.dart';
 
 import 'services/branding_service.dart'; 
 import 'features/drill/providers.dart'; 
@@ -443,18 +444,18 @@ class _InfoTile extends StatelessWidget {
   }
 }
 // The  video processing overlay is a critical UX component that appears after the drill ends while the app finalizes the video file. It features a sleek loading animation and informative text to keep users engaged during this potentially lengthy process, especially on slower devices. The overlay also handles both Free and Pro user flows, providing tailored messaging based on the user's subscription status. By blocking interaction with the underlying UI, it prevents any accidental taps that could disrupt the processing workflow. Overall, this overlay transforms what could be a frustrating wait into a polished and reassuring experience for users as they await their drill summary video.
-class _VideoProcessingOverlay extends StatefulWidget {
-  const _VideoProcessingOverlay();
+    class _VideoProcessingOverlay extends ConsumerStatefulWidget {
+      const _VideoProcessingOverlay();
 
-  @override
-  State<_VideoProcessingOverlay> createState() => _VideoProcessingOverlayState();
-}
+      @override
+      ConsumerState<_VideoProcessingOverlay> createState() => _VideoProcessingOverlayState();
+    }
 
-class _VideoProcessingOverlayState extends State<_VideoProcessingOverlay> {
-  late VideoPlayerController _controller;
-  bool _initialized = false;
+    class _VideoProcessingOverlayState extends ConsumerState<_VideoProcessingOverlay> {
+      late VideoPlayerController _controller;
+      bool _initialized = false;
 
-  @override
+      @override
   void initState() {
     super.initState();
     _controller = VideoPlayerController.asset('assets/images/kkwloading_page.mp4')

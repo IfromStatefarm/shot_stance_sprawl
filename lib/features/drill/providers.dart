@@ -188,20 +188,20 @@ final calloutsProvider = AsyncNotifierProvider<CalloutsNotifier, List<Callout>>(
 
 class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
   final List<Callout> _defaults = [
-    const Callout(id: 'shot', nameEn: 'Shot', nameEs: 'Tiro', type: 'Movement'),
-    const Callout(id: 'sprawl', nameEn: 'Sprawl', nameEs: 'Sprawl', type: 'Movement'),
-    const Callout(id: 'stance', nameEn: 'Stance', nameEs: 'Postura', type: 'Movement'),
-    const Callout(id: 'circle', nameEn: 'Circle/Spin', nameEs: 'Círculo/Giro', type: 'Movement'), 
-    const Callout(id: 'down_block', nameEn: 'Down Block', nameEs: 'Bloqueo Abajo', type: 'Movement'),
-    const Callout(id: 'fake', nameEn: 'Fake', nameEs: 'Finta', type: 'Movement'),
-    const Callout(id: 'level_change', nameEn: 'Level Change', nameEs: 'Cambio de Nivel', type: 'Movement'),
-    const Callout(id: 'snap_down', nameEn: 'Snap Down', nameEs: 'Jalón', type: 'Movement'),
-    const Callout(id: 'high_knees', nameEn: 'High Knees', nameEs: 'Rodillas Altas', type: 'Movement'),
-    const Callout(id: 'foot_fire', nameEn: 'Foot Fire', nameEs: 'Fuego Pies', type: 'Duration', defaultDurationSeconds: 5, audioAssetAlias: 'foot_fire5'),
-    const Callout(id: 'hand_fight_15', nameEn: 'Hand Fight (15s)', nameEs: 'Manos (15s)', type: 'Duration', defaultDurationSeconds: 15, audioAssetAlias: 'hand_15'),
-    const Callout(id: 'hand_fight_30', nameEn: 'Hand Fight (30s)', nameEs: 'Manos (30s)', type: 'Duration', defaultDurationSeconds: 30, audioAssetAlias: 'hand_30'),
-    const Callout(id: 'hand_fight_45', nameEn: 'Hand Fight (45s)', nameEs: 'Manos (45s)', type: 'Duration', defaultDurationSeconds: 45, audioAssetAlias: 'hand_45'),
-    const Callout(id: 'hand_fight_60', nameEn: 'Hand Fight (60s)', nameEs: 'Manos (60s)', type: 'Duration', defaultDurationSeconds: 60, audioAssetAlias: 'hand_60'),
+    const Callout(id: 'shot', nameEn: 'Shot', nameEs: 'Tiro', type: 'Movement', audioAssetAlias: 'Shot'),
+    const Callout(id: 'sprawl', nameEn: 'Sprawl', nameEs: 'Sprawl', type: 'Movement', audioAssetAlias: 'Sprawl'),
+    const Callout(id: 'stance', nameEn: 'Stance', nameEs: 'Postura', type: 'Movement', audioAssetAlias: 'Stance'),
+    const Callout(id: 'circle', nameEn: 'Circle/Spin', nameEs: 'Círculo/Giro', type: 'Movement', audioAssetAlias: 'Circle'), 
+    const Callout(id: 'down_block', nameEn: 'Down Block', nameEs: 'Bloqueo Abajo', type: 'Movement', audioAssetAlias: 'Down_Block'),
+    const Callout(id: 'fake', nameEn: 'Fake', nameEs: 'Finta', type: 'Movement', audioAssetAlias: 'Fake'),
+    const Callout(id: 'level_change', nameEn: 'Level Change', nameEs: 'Cambio de Nivel', type: 'Movement', audioAssetAlias: 'Level_Change'),
+    const Callout(id: 'snap_down', nameEn: 'Snap Down', nameEs: 'Jalón', type: 'Movement', audioAssetAlias: 'Snap_Down'),
+    const Callout(id: 'high_knees', nameEn: 'High Knees', nameEs: 'Rodillas Altas', type: 'Movement', audioAssetAlias: 'High_Knees'),
+    const Callout(id: 'foot_fire', nameEn: 'Foot Fire', nameEs: 'Fuego Pies', type: 'Duration', defaultDurationSeconds: 5, audioAssetAlias: 'Foot_Fire'),
+    const Callout(id: 'hand_fight_15', nameEn: 'Hand Fight (15s)', nameEs: 'Manos (15s)', type: 'Duration', defaultDurationSeconds: 15, audioAssetAlias: 'Hand_Fight'),
+    const Callout(id: 'hand_fight_30', nameEn: 'Hand Fight (30s)', nameEs: 'Manos (30s)', type: 'Duration', defaultDurationSeconds: 30, audioAssetAlias: 'Hand_Fight'),
+    const Callout(id: 'hand_fight_45', nameEn: 'Hand Fight (45s)', nameEs: 'Manos (45s)', type: 'Duration', defaultDurationSeconds: 45, audioAssetAlias: 'Hand_Fight'),
+    const Callout(id: 'hand_fight_60', nameEn: 'Hand Fight (60s)', nameEs: 'Manos (60s)', type: 'Duration', defaultDurationSeconds: 60, audioAssetAlias: 'Hand_Fight'),
   ];
 
   @override

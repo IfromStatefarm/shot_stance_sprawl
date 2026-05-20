@@ -1,5 +1,5 @@
 import 'package:audioplayers/audioplayers.dart';
-import 'package:audio_session/audio_session.dart' hide AVAudioSessionCategory, AVAudioSessionOptions;
+import 'package:audio_session/audio_session.dart' hide AVAudioSessionCategory, AVAudioSessionOptions, AndroidAudioFocus;
 
 abstract class IAudioPlayer {
   Future<void> setAsset(String assetPath);
@@ -23,11 +23,11 @@ class RealAudioFactory implements AudioFactory {
     final player = AudioPlayer();
     player.setAudioContext(AudioContext(
       iOS: AudioContextIOS(
-        category: AVAudioSessionCategory.playback,
-        options: [
+        category: AVAudioSessionCategory.playAndRecord,
+        options: {
           AVAudioSessionOptions.mixWithOthers,
           AVAudioSessionOptions.defaultToSpeaker,
-        ],
+        },
       ),
       android: AudioContextAndroid(
         isSpeakerphoneOn: true,
@@ -35,9 +35,9 @@ class RealAudioFactory implements AudioFactory {
       ),
     ));
 
-    // CRITICAL FIX: Force low latency mode to prevent audio lag when the camera is hogging system resources.
-    player.setPlayerMode(PlayerMode.lowLatency);
-    return _AudioplayersWrapper(player);
+    //  Force low latency mode to prevent audio lag when the camera is hogging system resources.
+    player.setPlayerMode(PlayerMode.mediaPlayer);
+        return _AudioplayersWrapper(player);
   }
 }
 
