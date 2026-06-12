@@ -156,4 +156,69 @@ void main() {
       expect(migrated.customAudioPaths['hand_fight'], 'coach.m4a');
     });
   });
+
+  group('TrainingProgress', () {
+    test('tracks callouts, stance minutes, daily reps, and streaks', () {
+      final progress = const TrainingProgress()
+          .addSession(
+            callouts: const {'shot': 10, 'stance': 2},
+            stanceSeconds: 30,
+            at: DateTime(2026, 6, 5),
+          )
+          .addSession(
+            callouts: const {'sprawl': 8},
+            stanceSeconds: 0,
+            at: DateTime(2026, 6, 6),
+          )
+          .addSession(
+            callouts: const {'fake': 4, 'stance': 2},
+            stanceSeconds: 45,
+            at: DateTime(2026, 6, 7),
+          );
+
+      expect(progress.calloutCount('shot'), 10);
+      expect(progress.calloutCount('sprawl'), 8);
+      expect(progress.calloutCount('fake'), 4);
+      expect(progress.stanceMinutes, 1);
+      expect(progress.repsForDate(DateTime(2026, 6, 7)), 6);
+      expect(progress.currentStreak(today: DateTime(2026, 6, 7)), 3);
+    });
+
+    test('counts completed sessions toward streak even with no callouts', () {
+      final progress = const TrainingProgress()
+          .addSession(
+            callouts: const {'shot': 4},
+            stanceSeconds: 0,
+            at: DateTime(2026, 6, 7),
+          )
+          .addSession(
+            callouts: const {},
+            stanceSeconds: 0,
+            at: DateTime(2026, 6, 8),
+          );
+
+      expect(progress.repsForDate(DateTime(2026, 6, 8)), 0);
+      expect(progress.sessionsForDate(DateTime(2026, 6, 8)), 1);
+      expect(progress.currentStreak(today: DateTime(2026, 6, 8)), 2);
+    });
+
+    test('serializes the state date and goal totals', () {
+      final restored = TrainingProgress.fromJson(
+        TrainingProgress(
+          calloutCounts: const {'shot': 55},
+          repsByDate: const {'2026-06-07': 50},
+          sessionsByDate: const {'2026-06-07': 1},
+          stateDate: DateTime(2026, 9, 5),
+        ).toJson(),
+      );
+
+      expect(restored.calloutCount('shot'), 55);
+      expect(restored.repsForDate(DateTime(2026, 6, 7)), 50);
+      expect(restored.sessionsForDate(DateTime(2026, 6, 7)), 1);
+      expect(
+        restored.daysUntilState(today: DateTime(2026, 6, 7)),
+        90,
+      );
+    });
+  });
 }

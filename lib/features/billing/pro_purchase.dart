@@ -139,7 +139,7 @@ class ProPurchaseController extends Notifier<ProPurchaseState> {
     if (product == null) {
       state = state.copyWith(
         errorMessage:
-            'Snap&Go Pro is not available. Confirm snap_go_pro_monthly exists in both stores.',
+            'Snap & Go Coach Mode is not available. Confirm snap_go_pro_monthly exists in both stores.',
       );
       return;
     }

@@ -5,11 +5,12 @@ plugins {
 }
 
 android {
-    namespace = "com.yourname.shot_stance_sprawl"
+    namespace = "com.snapandgo.shadowwrestling"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -21,7 +22,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.yourname.shot_stance_sprawl"
+        applicationId = "com.snapandgo.shadowwrestling"
         minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -36,10 +37,14 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+
     // Jetpack Media3 for Native Hardware-Accelerated Video Editing
     implementation("androidx.media3:media3-transformer:1.10.1")
     implementation("androidx.media3:media3-effect:1.10.1")
     implementation("androidx.media3:media3-common:1.10.1")
+    implementation("androidx.window:window:1.0.0")
+    implementation("androidx.window:window-java:1.0.0")
     
     // Required by Media3 for ImmutableList and other collections used in MainActivity.kt
     implementation("com.google.guava:guava:32.1.3-android")

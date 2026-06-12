@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.yourname" "\0"
-            VALUE "FileDescription", "shot_stance_sprawl" "\0"
+            VALUE "CompanyName", "Snap & Go" "\0"
+            VALUE "FileDescription", "Snap & Go Shadow Wrestling Coach" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "shot_stance_sprawl" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2025 com.yourname. All rights reserved." "\0"
-            VALUE "OriginalFilename", "shot_stance_sprawl.exe" "\0"
-            VALUE "ProductName", "shot_stance_sprawl" "\0"
+            VALUE "InternalName", "Snap & Go" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2025 Snap & Go. All rights reserved." "\0"
+            VALUE "OriginalFilename", "snap_and_go.exe" "\0"
+            VALUE "ProductName", "Snap & Go" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

@@ -7,15 +7,15 @@ class UserProfile {
   final String id;
   final String? activeVoicePackId;
   final double weightLbs;
-  final int age; 
+  final int age;
   final String? teamName;
-  final String? profileImageUrl; 
+  final String? profileImageUrl;
 
   const UserProfile({
     required this.id,
     this.activeVoicePackId,
     this.weightLbs = 150.0,
-    this.age = 18, 
+    this.age = 18,
     this.teamName,
     this.profileImageUrl,
   });
@@ -90,21 +90,21 @@ class Callout {
   final String id;
   final String nameEn;
   final String nameEs;
-  final String type; 
-  final int defaultDurationSeconds; 
-  final String? audioUrl; 
+  final String type;
+  final int defaultDurationSeconds;
+  final String? audioUrl;
   final bool isCustom;
-  final String? audioAssetAlias; 
+  final String? audioAssetAlias;
 
   const Callout({
     required this.id,
     required this.nameEn,
     required this.nameEs,
     required this.type,
-    this.defaultDurationSeconds = 0, 
+    this.defaultDurationSeconds = 0,
     this.audioUrl,
     this.isCustom = false,
-    this.audioAssetAlias, 
+    this.audioAssetAlias,
   });
 
   // ADDED: copyWith to allow renaming custom callouts
@@ -123,7 +123,8 @@ class Callout {
       nameEn: nameEn ?? this.nameEn,
       nameEs: nameEs ?? this.nameEs,
       type: type ?? this.type,
-      defaultDurationSeconds: defaultDurationSeconds ?? this.defaultDurationSeconds,
+      defaultDurationSeconds:
+          defaultDurationSeconds ?? this.defaultDurationSeconds,
       audioUrl: audioUrl ?? this.audioUrl,
       isCustom: isCustom ?? this.isCustom,
       audioAssetAlias: audioAssetAlias ?? this.audioAssetAlias,
@@ -146,21 +147,24 @@ class Callout {
   }
 
   factory Callout.fromMap(String id, Map<String, dynamic> data) {
-    final rawDur = data['defaultDurationSeconds'] ?? data['durationSeconds']; 
-    
+    final rawDur = data['defaultDurationSeconds'] ?? data['durationSeconds'];
+
     return Callout(
-      id: data['id'] ?? id, 
-      nameEn: (data['nameEn'] as String?) ?? (data['name'] as String?) ?? 'Callout',
-      nameEs: (data['nameEs'] as String?) ?? (data['name'] as String?) ?? 'Comando',
+      id: data['id'] ?? id,
+      nameEn:
+          (data['nameEn'] as String?) ?? (data['name'] as String?) ?? 'Callout',
+      nameEs:
+          (data['nameEs'] as String?) ?? (data['name'] as String?) ?? 'Comando',
       type: (data['type'] as String?) ?? 'Movement',
-      defaultDurationSeconds: (rawDur as num?)?.toInt() ?? 0, 
+      defaultDurationSeconds: (rawDur as num?)?.toInt() ?? 0,
       audioUrl: data['audioUrl'] as String?,
       isCustom: (data['isCustom'] as bool?) ?? false,
-      audioAssetAlias: data['audioAssetAlias'] as String?, 
+      audioAssetAlias: data['audioAssetAlias'] as String?,
     );
   }
 
-  factory Callout.fromJson(Map<String, dynamic> json) => Callout.fromMap(json['id'] ?? 'unknown', json);
+  factory Callout.fromJson(Map<String, dynamic> json) =>
+      Callout.fromMap(json['id'] ?? 'unknown', json);
 
   @override
   bool operator ==(Object other) =>
@@ -171,12 +175,178 @@ class Callout {
   int get hashCode => id.hashCode;
 }
 
+@immutable
+class TrainingProgress {
+  final Map<String, int> calloutCounts;
+  final int stanceSeconds;
+  final Map<String, int> repsByDate;
+  final Map<String, int> sessionsByDate;
+  final DateTime? stateDate;
+
+  const TrainingProgress({
+    this.calloutCounts = const {},
+    this.stanceSeconds = 0,
+    this.repsByDate = const {},
+    this.sessionsByDate = const {},
+    this.stateDate,
+  });
+
+  factory TrainingProgress.initial({DateTime? now}) {
+    final today = _dateOnly(now ?? DateTime.now());
+    return TrainingProgress(
+      stateDate: today.add(const Duration(days: 90)),
+    );
+  }
+
+  TrainingProgress copyWith({
+    Map<String, int>? calloutCounts,
+    int? stanceSeconds,
+    Map<String, int>? repsByDate,
+    Map<String, int>? sessionsByDate,
+    DateTime? stateDate,
+  }) {
+    return TrainingProgress(
+      calloutCounts: calloutCounts ?? this.calloutCounts,
+      stanceSeconds: stanceSeconds ?? this.stanceSeconds,
+      repsByDate: repsByDate ?? this.repsByDate,
+      sessionsByDate: sessionsByDate ?? this.sessionsByDate,
+      stateDate: stateDate ?? this.stateDate,
+    );
+  }
+
+  int calloutCount(String id) => calloutCounts[id] ?? 0;
+
+  int get stanceMinutes => stanceSeconds ~/ 60;
+
+  int get totalCallouts =>
+      calloutCounts.values.fold<int>(0, (sum, value) => sum + value);
+
+  int repsForDate(DateTime date) => repsByDate[dateKey(date)] ?? 0;
+
+  int sessionsForDate(DateTime date) {
+    final key = dateKey(date);
+    return sessionsByDate[key] ?? (repsForDate(date) > 0 ? 1 : 0);
+  }
+
+  int currentStreak({DateTime? today}) {
+    if (sessionsByDate.isEmpty && repsByDate.isEmpty) return 0;
+
+    var cursor = _dateOnly(today ?? DateTime.now());
+    if (sessionsForDate(cursor) == 0) {
+      cursor = cursor.subtract(const Duration(days: 1));
+      if (sessionsForDate(cursor) == 0) return 0;
+    }
+
+    var streak = 0;
+    while (sessionsForDate(cursor) > 0) {
+      streak++;
+      cursor = cursor.subtract(const Duration(days: 1));
+    }
+
+    return streak;
+  }
+
+  int? daysUntilState({DateTime? today}) {
+    final target = stateDate;
+    if (target == null) return null;
+
+    final start = _dateOnly(today ?? DateTime.now());
+    final finish = _dateOnly(target);
+    final days = finish.difference(start).inDays;
+    return days < 0 ? 0 : days;
+  }
+
+  TrainingProgress addSession({
+    required Map<String, int> callouts,
+    required int stanceSeconds,
+    DateTime? at,
+  }) {
+    final nextCalloutCounts = Map<String, int>.from(calloutCounts);
+    var sessionReps = 0;
+
+    for (final entry in callouts.entries) {
+      if (entry.value <= 0) continue;
+      nextCalloutCounts[entry.key] =
+          (nextCalloutCounts[entry.key] ?? 0) + entry.value;
+      sessionReps += entry.value;
+    }
+
+    final nextRepsByDate = Map<String, int>.from(repsByDate);
+    if (sessionReps > 0) {
+      final key = dateKey(at ?? DateTime.now());
+      nextRepsByDate[key] = (nextRepsByDate[key] ?? 0) + sessionReps;
+    }
+    final nextSessionsByDate = Map<String, int>.from(sessionsByDate);
+    final key = dateKey(at ?? DateTime.now());
+    nextSessionsByDate[key] = (nextSessionsByDate[key] ?? 0) + 1;
+
+    return copyWith(
+      calloutCounts: nextCalloutCounts,
+      stanceSeconds: this.stanceSeconds + stanceSeconds,
+      repsByDate: nextRepsByDate,
+      sessionsByDate: nextSessionsByDate,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'calloutCounts': calloutCounts,
+      'stanceSeconds': stanceSeconds,
+      'repsByDate': repsByDate,
+      'sessionsByDate': sessionsByDate,
+      'stateDate': stateDate == null ? null : dateKey(stateDate!),
+    };
+  }
+
+  String toJson() => json.encode(toMap());
+
+  factory TrainingProgress.fromJson(String source) =>
+      TrainingProgress.fromMap(json.decode(source) as Map<String, dynamic>);
+
+  factory TrainingProgress.fromMap(Map<String, dynamic> map) {
+    final rawStateDate = map['stateDate'] as String?;
+    final parsedStateDate =
+        rawStateDate == null ? null : DateTime.tryParse(rawStateDate);
+
+    return TrainingProgress(
+      calloutCounts: _decodeIntMap(map['calloutCounts']),
+      stanceSeconds: (map['stanceSeconds'] as num?)?.toInt() ?? 0,
+      repsByDate: _decodeIntMap(map['repsByDate']),
+      sessionsByDate: _decodeIntMap(map['sessionsByDate']),
+      stateDate: parsedStateDate == null ? null : _dateOnly(parsedStateDate),
+    );
+  }
+
+  static String dateKey(DateTime date) {
+    final local = _dateOnly(date);
+    return '${local.year.toString().padLeft(4, '0')}-'
+        '${local.month.toString().padLeft(2, '0')}-'
+        '${local.day.toString().padLeft(2, '0')}';
+  }
+
+  static DateTime _dateOnly(DateTime date) =>
+      DateTime(date.year, date.month, date.day);
+
+  static Map<String, int> _decodeIntMap(Object? source) {
+    if (source is! Map) return {};
+
+    return source.map(
+      (key, value) => MapEntry(
+        key.toString(),
+        (value as num?)?.toInt() ?? 0,
+      ),
+    );
+  }
+}
+
 const Map<String, int> _legacyHandFightDurations = {
   'hand_fight_15': 15,
   'hand_fight_30': 30,
   'hand_fight_45': 45,
   'hand_fight_60': 60,
 };
+
+const Object _drillConfigUnset = Object();
 
 @immutable
 class DrillConfig {
@@ -186,9 +356,10 @@ class DrillConfig {
   final Set<String> enabledCalloutIds;
   final Map<String, String> customAudioPaths;
   final Map<String, String> customAdLibAudioPaths;
-  final Map<String, int> calloutOverrideDurations; 
+  final Map<String, int> calloutOverrideDurations;
   final bool videoEnabled;
   final bool adLibsEnabled;
+  final String? activeWorkoutPresetId;
 
   const DrillConfig({
     this.totalDurationSeconds = 60,
@@ -197,15 +368,16 @@ class DrillConfig {
     this.enabledCalloutIds = const {},
     this.customAudioPaths = const {},
     this.customAdLibAudioPaths = const {},
-    this.calloutOverrideDurations = const {}, 
+    this.calloutOverrideDurations = const {},
     this.videoEnabled = false,
     this.adLibsEnabled = false,
+    this.activeWorkoutPresetId,
   });
 
   double get metValue {
-    if (maxIntervalSeconds <= 2.0) return 11.5; 
-    if (maxIntervalSeconds <= 4.0) return 8.5;  
-    return 6.0; 
+    if (maxIntervalSeconds <= 2.0) return 11.5;
+    if (maxIntervalSeconds <= 4.0) return 8.5;
+    return 6.0;
   }
 
   DrillConfig copyWith({
@@ -215,9 +387,10 @@ class DrillConfig {
     Set<String>? enabledCalloutIds,
     Map<String, String>? customAudioPaths,
     Map<String, String>? customAdLibAudioPaths,
-    Map<String, int>? calloutOverrideDurations, 
+    Map<String, int>? calloutOverrideDurations,
     bool? videoEnabled,
     bool? adLibsEnabled,
+    Object? activeWorkoutPresetId = _drillConfigUnset,
   }) {
     return DrillConfig(
       totalDurationSeconds: totalDurationSeconds ?? this.totalDurationSeconds,
@@ -227,9 +400,13 @@ class DrillConfig {
       customAudioPaths: customAudioPaths ?? this.customAudioPaths,
       customAdLibAudioPaths:
           customAdLibAudioPaths ?? this.customAdLibAudioPaths,
-      calloutOverrideDurations: calloutOverrideDurations ?? this.calloutOverrideDurations, 
+      calloutOverrideDurations:
+          calloutOverrideDurations ?? this.calloutOverrideDurations,
       videoEnabled: videoEnabled ?? this.videoEnabled,
       adLibsEnabled: adLibsEnabled ?? this.adLibsEnabled,
+      activeWorkoutPresetId: identical(activeWorkoutPresetId, _drillConfigUnset)
+          ? this.activeWorkoutPresetId
+          : activeWorkoutPresetId as String?,
     );
   }
 
@@ -241,15 +418,15 @@ class DrillConfig {
       'enabledCalloutIds': enabledCalloutIds.toList(),
       'customAudioPaths': customAudioPaths,
       'customAdLibAudioPaths': customAdLibAudioPaths,
-      'calloutOverrideDurations': calloutOverrideDurations, 
+      'calloutOverrideDurations': calloutOverrideDurations,
       'videoEnabled': videoEnabled,
       'adLibsEnabled': adLibsEnabled,
+      'activeWorkoutPresetId': activeWorkoutPresetId,
     };
   }
 
   factory DrillConfig.fromMap(Map<String, dynamic> map) {
-    final enabledCalloutIds =
-        Set<String>.from(map['enabledCalloutIds'] ?? []);
+    final enabledCalloutIds = Set<String>.from(map['enabledCalloutIds'] ?? []);
     final customAudioPaths =
         Map<String, String>.from(map['customAudioPaths'] ?? {});
     final calloutOverrideDurations =
@@ -289,11 +466,12 @@ class DrillConfig {
       calloutOverrideDurations: calloutOverrideDurations,
       videoEnabled: map['videoEnabled'] ?? false,
       adLibsEnabled: map['adLibsEnabled'] ?? false,
+      activeWorkoutPresetId: map['activeWorkoutPresetId'] as String?,
     );
   }
 
   String toJson() => json.encode(toMap());
 
-  factory DrillConfig.fromJson(String source) => 
+  factory DrillConfig.fromJson(String source) =>
       DrillConfig.fromMap(json.decode(source));
 }

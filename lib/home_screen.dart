@@ -1,15 +1,19 @@
 import 'dart:async';
-import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:audioplayers/audioplayers.dart';
-import 'package:record/record.dart';
-import 'package:path_provider/path_provider.dart';
-
+import 'package:shot_stance_sprawl/drill_runner.dart';
+import 'package:shot_stance_sprawl/features/drill/ad_libs.dart';
+import 'package:shot_stance_sprawl/features/drill/presentation/training_dashboard.dart';
+import 'package:shot_stance_sprawl/features/drill/presentation/widgets/home_callout_tile.dart';
+import 'package:shot_stance_sprawl/features/drill/presentation/widgets/home_recording_sheet.dart';
+import 'package:shot_stance_sprawl/features/drill/presentation/widgets/settings_ad_lib_section.dart';
+import 'package:shot_stance_sprawl/features/drill/presentation/widgets/settings_custom_callouts_section.dart';
+import 'package:shot_stance_sprawl/features/drill/presentation/widgets/workout_preset_sheet.dart';
 import 'package:shot_stance_sprawl/features/drill/providers.dart';
 import 'package:shot_stance_sprawl/features/drill/recording_policy.dart';
-import 'package:shot_stance_sprawl/drill_runner.dart';
+
 import 'app_theme.dart';
 import 'settings_screen.dart';
 
@@ -55,6 +59,8 @@ class _BrandTitle extends StatelessWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
+  int _selectedTabIndex = 0;
+  int _tabTransitionDirection = 1;
   double _difficultyValue = 1.0;
   bool _showFreeVideoDurationHint = false;
   final bool _legacyFreeVideoLimitMessageEnabled = false;
@@ -96,6 +102,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         );
   }
 
+  void _changeTab(int index) {
+    if (index == _selectedTabIndex) return;
+
+    setState(() {
+      _tabTransitionDirection = index > _selectedTabIndex ? 1 : -1;
+      _selectedTabIndex = index;
+    });
+  }
+
+  int _difficultyIndexForPreset(WorkoutPreset preset) {
+    final difficulty = preset.recommendedDifficulty;
+    if (difficulty <= 3) return 0;
+    if (difficulty <= 6) return 1;
+    if (difficulty <= 8) return 2;
+    return 3;
+  }
+
   void _showFadingToast(BuildContext context, String message) {
     final overlay = Overlay.of(context);
     final entry = OverlayEntry(
@@ -129,8 +152,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _showFadingToast(
       context,
       isEs
-          ? 'Actualiza a Pro para videos mas largos o desactiva grabacion para drills mas largos'
-          : 'Upgrade to Pro for longer videos or toggle recording off for longer drills',
+          ? 'Activa Coach Mode para videos mas largos o desactiva grabacion para drills mas largos'
+          : 'Unlock Coach Mode for longer videos or toggle recording off for longer drills',
     );
 
     setState(() => _showFreeVideoDurationHint = true);
@@ -151,10 +174,225 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (context) => _RecordingSheetContent(
+      builder: (context) => HomeRecordingSheetContent(
         calloutId: id,
         calloutName: name,
         initialAudioPath: initialAudioPath,
+      ),
+    );
+  }
+
+  Future<void> _startConfiguredDrill({required bool isEs}) async {
+    final config = ref.read(drillConfigProvider);
+    if (config.enabledCalloutIds.isEmpty) {
+      _showFadingToast(
+        context,
+        isEs ? 'Selecciona al menos un comando' : 'Select at least one callout',
+      );
+      return;
+    }
+
+    final callouts = ref.read(calloutsProvider).asData?.value;
+    if (callouts == null) {
+      _showFadingToast(
+        context,
+        isEs ? 'Error de comandos' : 'Callouts unavailable',
+      );
+      return;
+    }
+
+    if (ref.read(drillEngineProvider).running) {
+      await ref.read(drillEngineProvider.notifier).stop();
+      return;
+    }
+
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const DrillRunnerScreen()),
+    );
+  }
+
+  Future<void> _applyWorkoutPreset(
+    WorkoutPreset preset, {
+    required bool startNow,
+    required bool isEs,
+  }) async {
+    final notifier = ref.read(drillConfigProvider.notifier);
+    final difficultyIndex = _difficultyIndexForPreset(preset);
+    final difficultyLevel = _difficultyLevels[difficultyIndex];
+    final isPro = ref.read(isProProvider);
+    final shouldDisableFreeRecording =
+        !isPro && ref.read(drillConfigProvider).videoEnabled;
+
+    notifier.applyWorkoutPreset(
+      preset,
+      totalDurationSeconds: preset.recommendedDurationSeconds,
+      minIntervalSeconds: difficultyLevel.$2,
+      maxIntervalSeconds: difficultyLevel.$3,
+      videoEnabled: shouldDisableFreeRecording ? false : null,
+    );
+
+    if (mounted) {
+      setState(() {
+        _difficultyValue = difficultyIndex.toDouble();
+        if (shouldDisableFreeRecording) {
+          _showFreeVideoDurationHint = false;
+        }
+      });
+    }
+
+    if (shouldDisableFreeRecording) {
+      await ref.read(drillEngineProvider.notifier).disposeCamera();
+    }
+
+    if (startNow) {
+      await _startConfiguredDrill(isEs: isEs);
+      return;
+    }
+
+    if (!mounted) return;
+    _showFadingToast(
+      context,
+      shouldDisableFreeRecording
+          ? (isEs
+              ? '${preset.title(isEs: isEs)} cargado. Grabacion desactivada para el workout completo.'
+              : '${preset.title(isEs: isEs)} loaded. Recording turned off for the full workout.')
+          : (isEs
+              ? '${preset.title(isEs: isEs)} cargado'
+              : '${preset.title(isEs: isEs)} loaded'),
+    );
+  }
+
+  void _showWorkoutPresetSheet({required bool isEs}) {
+    final dailyMission = ref.read(dailyMissionProvider);
+
+    unawaited(
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        sheetAnimationStyle: const AnimationStyle(
+          duration: Duration(milliseconds: 420),
+          reverseDuration: Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        ),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height,
+        ),
+        builder: (_) => WorkoutPresetSheet(
+          isEs: isEs,
+          dailyMission: dailyMission,
+          onPresetSelected: (preset, {required startNow}) {
+            unawaited(
+              _applyWorkoutPreset(
+                preset,
+                startNow: startNow,
+                isEs: isEs,
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _setRecordingEnabled(
+    bool enableVideo, {
+    required bool isEs,
+    required bool isPro,
+  }) async {
+    ref.read(drillConfigProvider.notifier).setVideoEnabled(enableVideo);
+
+    final drillEngine = ref.read(drillEngineProvider.notifier);
+    if (enableVideo) {
+      if (!isPro) {
+        _showFreeVideoDurationLockMessage(
+          context,
+          isEs: isEs,
+        );
+      }
+      if (_legacyFreeVideoLimitMessageEnabled && !isPro) {
+        if (ref.read(drillConfigProvider).totalDurationSeconds >
+            RecordingPolicy.freeRecordingLimitSeconds) {
+          setState(() {
+            _showFreeVideoDurationHint = true;
+          });
+        }
+        _showFadingToast(
+          context,
+          isEs ? 'Limite de 60s' : 'Free limit: 60s',
+        );
+      }
+      await drillEngine.preloadCamera();
+    } else {
+      setState(() {
+        _showFreeVideoDurationHint = false;
+      });
+      await drillEngine.disposeCamera();
+    }
+  }
+
+  Future<void> _startRecordedDrill({
+    required bool isEs,
+    required bool isPro,
+  }) async {
+    if (!ref.read(drillConfigProvider).videoEnabled) {
+      await _setRecordingEnabled(true, isEs: isEs, isPro: isPro);
+    }
+    if (!mounted) return;
+    await _startConfiguredDrill(isEs: isEs);
+  }
+
+  void _showProPrompt() {
+    final proPurchase = ref.read(proPurchaseProvider);
+    if (proPurchase.canBuy) {
+      unawaited(ref.read(proPurchaseProvider.notifier).buyPro());
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          proPurchase.errorMessage ??
+              'Snap & Go Coach Mode is loading. Try again in a moment.',
+        ),
+      ),
+    );
+  }
+
+  void _showAdLibSheet(AdLibSlot slot, {required bool isPro}) {
+    if (!slot.isUnlocked(isPro: isPro)) {
+      _showProPrompt();
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: AdLibRecordingSheet(
+          slot: slot,
+          allowCustomization: slot.canCustomize(isPro: isPro),
+          onUpgradeTap: _showProPrompt,
+        ),
+      ),
+    );
+  }
+
+  void _showAddCalloutSheet({required bool isPro}) {
+    if (!isPro) {
+      _showProPrompt();
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: const AddCalloutSheet(autoEnableOnSave: true),
       ),
     );
   }
@@ -168,13 +406,213 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final config = ref.watch(drillConfigProvider);
-    final engine = ref.watch(drillEngineProvider);
+    final engineRunning =
+        ref.watch(drillEngineProvider.select((state) => state.running));
     final calloutsAsync = ref.watch(calloutsProvider);
     final lang = ref.watch(languageProvider);
-    final notifier = ref.read(drillConfigProvider.notifier);
     final isPro = ref.watch(isProProvider);
+    final progress = ref.watch(trainingProgressProvider);
+    final dailyMission = ref.watch(dailyMissionProvider);
 
     final isEs = lang == 'es';
+
+    return Scaffold(
+      appBar: _buildAppBar(isEs),
+      body: _buildTabTransition(
+        child: _buildSelectedTab(
+          config: config,
+          engineRunning: engineRunning,
+          calloutsAsync: calloutsAsync,
+          isEs: isEs,
+          isPro: isPro,
+          progress: progress,
+          dailyMission: dailyMission,
+        ),
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedTabIndex,
+        onDestinationSelected: _changeTab,
+        destinations: [
+          NavigationDestination(
+            icon: const Icon(Icons.home_outlined),
+            selectedIcon: const Icon(Icons.home),
+            label: isEs ? 'Inicio' : 'Home',
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.fitness_center_outlined),
+            selectedIcon: const Icon(Icons.fitness_center),
+            label: isEs ? 'Entrenar' : 'Train',
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.query_stats_outlined),
+            selectedIcon: const Icon(Icons.query_stats),
+            label: isEs ? 'Progreso' : 'Progress',
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.video_library_outlined),
+            selectedIcon: const Icon(Icons.video_library),
+            label: isEs ? 'Review' : 'Review',
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.settings_outlined),
+            selectedIcon: const Icon(Icons.settings),
+            label: isEs ? 'Ajustes' : 'Settings',
+          ),
+        ],
+      ),
+    );
+  }
+
+  PreferredSizeWidget? _buildAppBar(bool isEs) {
+    if (_selectedTabIndex == 4) return null;
+
+    Widget title;
+    switch (_selectedTabIndex) {
+      case 1:
+        title = Text(isEs ? 'Entrenar' : 'Train');
+        break;
+      case 2:
+        title = Text(isEs ? 'Progreso' : 'Progress');
+        break;
+      case 3:
+        title = Text(isEs ? 'Review' : 'Review');
+        break;
+      default:
+        title = const _BrandTitle();
+    }
+
+    return AppBar(
+      title: title,
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.settings),
+          onPressed: () => _changeTab(4),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTabTransition({required Widget child}) {
+    return ClipRect(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 330),
+        reverseDuration: const Duration(milliseconds: 260),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        layoutBuilder: (currentChild, previousChildren) {
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              for (final previousChild in previousChildren)
+                Positioned.fill(child: previousChild),
+              if (currentChild != null) Positioned.fill(child: currentChild),
+            ],
+          );
+        },
+        transitionBuilder: (child, animation) {
+          final key = child.key;
+          final childIndex =
+              key is ValueKey<int> ? key.value : _selectedTabIndex;
+          final isIncoming = childIndex == _selectedTabIndex;
+          final slideDirection =
+              isIncoming ? _tabTransitionDirection : -_tabTransitionDirection;
+          final curvedAnimation = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
+
+          return FadeTransition(
+            opacity: curvedAnimation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: Offset(slideDirection * 0.18, 0),
+                end: Offset.zero,
+              ).animate(curvedAnimation),
+              child: child,
+            ),
+          );
+        },
+        child: KeyedSubtree(
+          key: ValueKey<int>(_selectedTabIndex),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSelectedTab({
+    required DrillConfig config,
+    required bool engineRunning,
+    required AsyncValue<List<Callout>> calloutsAsync,
+    required bool isEs,
+    required bool isPro,
+    required TrainingProgress progress,
+    required WorkoutPreset dailyMission,
+  }) {
+    switch (_selectedTabIndex) {
+      case 0:
+        return TrainingDashboard(
+          progress: progress,
+          isEs: isEs,
+          missionLoading: calloutsAsync.isLoading,
+          dailyMission: dailyMission,
+          onStartMission: () => unawaited(
+            _applyWorkoutPreset(
+              dailyMission,
+              startNow: true,
+              isEs: isEs,
+            ),
+          ),
+          onBrowseWorkouts: () => _showWorkoutPresetSheet(isEs: isEs),
+          onCustomizeDrill: () {
+            _changeTab(1);
+          },
+        );
+      case 1:
+        return _buildTrainTab(
+          config: config,
+          engineRunning: engineRunning,
+          calloutsAsync: calloutsAsync,
+          isEs: isEs,
+          isPro: isPro,
+          dailyMission: dailyMission,
+        );
+      case 2:
+        return TrainingProgressView(
+          progress: progress,
+          isEs: isEs,
+          onStartTraining: () {
+            _changeTab(1);
+          },
+        );
+      case 3:
+        return RecordingsView(
+          isEs: isEs,
+          recordingEnabled: config.videoEnabled,
+          onRecordingChanged: (enabled) {
+            unawaited(
+              _setRecordingEnabled(enabled, isEs: isEs, isPro: isPro),
+            );
+          },
+          onStartRecordedDrill: () {
+            unawaited(_startRecordedDrill(isEs: isEs, isPro: isPro));
+          },
+        );
+      default:
+        return const SettingsScreen();
+    }
+  }
+
+  Widget _buildTrainTab({
+    required DrillConfig config,
+    required bool engineRunning,
+    required AsyncValue<List<Callout>> calloutsAsync,
+    required bool isEs,
+    required bool isPro,
+    required WorkoutPreset dailyMission,
+  }) {
+    final notifier = ref.read(drillConfigProvider.notifier);
     final isFreeRecordingLocked = config.videoEnabled && !isPro;
     final selectedDurationMinutes =
         isFreeRecordingLocked ? 1 : (config.totalDurationSeconds / 60).round();
@@ -185,345 +623,872 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final showFreeVideoDurationHint =
         isFreeRecordingLocked && _showFreeVideoDurationHint;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const _BrandTitle(),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const SettingsScreen()),
+    return Column(
+      children: [
+        _TrainControlDock(
+          isEs: isEs,
+          isPro: isPro,
+          engineRunning: engineRunning,
+          recordingEnabled: config.videoEnabled,
+          adLibsEnabled: config.adLibsEnabled,
+          durationMinutes: durationSliderValue,
+          durationMaxMinutes: durationSliderMaxMinutes,
+          durationLocked: isFreeRecordingLocked,
+          showFreeVideoDurationHint: showFreeVideoDurationHint,
+          difficultyValue: _difficultyValue,
+          difficultyLabel: _difficultyLevels[_difficultyValue.round()].$1,
+          config: config,
+          onStart: () => unawaited(_startConfiguredDrill(isEs: isEs)),
+          onRecordingTap: () {
+            unawaited(
+              _setRecordingEnabled(
+                !ref.read(drillConfigProvider).videoEnabled,
+                isEs: isEs,
+                isPro: isPro,
+              ),
+            );
+          },
+          onDurationLocked: () {
+            _showFreeVideoDurationLockMessage(context, isEs: isEs);
+          },
+          onDurationChanged: (val) {
+            final requestedSeconds = (val * 60).round();
+            notifier.setTotalDurationSeconds(requestedSeconds);
+            if (_showFreeVideoDurationHint) {
+              setState(() {
+                _showFreeVideoDurationHint = false;
+              });
+            }
+          },
+          onDifficultyChanged: _updateDifficulty,
+          onAdLibsChanged: (enabled) => notifier.setAdLibsEnabled(enabled),
+          onAdLibSlotTap: (slot) => _showAdLibSheet(slot, isPro: isPro),
+        ),
+        Expanded(
+          child: calloutsAsync.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Center(child: Text('Error: $e')),
+            data: (list) => _CalloutToggleScroller(
+              callouts: list,
+              isEs: isEs,
+              config: config,
+              dailyMission: dailyMission,
+              onWorkoutsTap: () => _showWorkoutPresetSheet(isEs: isEs),
+              onToggle: (callout, enabled) {
+                notifier.toggleCallout(callout.id, enabled: enabled);
+              },
+              onRecordTapped: (callout) => _showRecordingSheet(
+                context,
+                callout.id,
+                isEs ? callout.nameEs : callout.nameEn,
+                initialAudioPath: callout.audioUrl,
+              ),
+              onAddNewTapped: () => _showAddCalloutSheet(isPro: isPro),
             ),
           ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 160),
-              children: [
-                Text(
-                  isEs ? 'Comandos' : 'Callouts',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleLarge
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                calloutsAsync.when(
-                  loading: () =>
-                      const Center(child: CircularProgressIndicator()),
-                  error: (e, _) => Center(child: Text('Error: $e')),
-                  data: (list) => GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      mainAxisSpacing: 8,
-                      crossAxisSpacing: 8,
-                      childAspectRatio: 1.4,
-                    ),
-                    itemCount: list.length,
-                    itemBuilder: (context, index) {
-                      final c = list[index];
-                      return _CalloutTile(
-                        callout: c,
-                        enabled: config.enabledCalloutIds.contains(c.id),
-                        onChanged: (v) =>
-                            notifier.toggleCallout(c.id, enabled: v),
-                        onRecordTapped: () => _showRecordingSheet(
-                          context,
-                          c.id,
-                          isEs ? c.nameEs : c.nameEn,
-                          initialAudioPath: c.audioUrl,
+        ),
+      ],
+    );
+  }
+}
+
+class _TrainControlDock extends StatelessWidget {
+  final bool isEs;
+  final bool isPro;
+  final bool engineRunning;
+  final bool recordingEnabled;
+  final bool adLibsEnabled;
+  final double durationMinutes;
+  final int durationMaxMinutes;
+  final bool durationLocked;
+  final bool showFreeVideoDurationHint;
+  final double difficultyValue;
+  final String difficultyLabel;
+  final DrillConfig config;
+  final VoidCallback onStart;
+  final VoidCallback onRecordingTap;
+  final VoidCallback onDurationLocked;
+  final ValueChanged<double> onDurationChanged;
+  final ValueChanged<double> onDifficultyChanged;
+  final ValueChanged<bool> onAdLibsChanged;
+  final ValueChanged<AdLibSlot> onAdLibSlotTap;
+
+  const _TrainControlDock({
+    required this.isEs,
+    required this.isPro,
+    required this.engineRunning,
+    required this.recordingEnabled,
+    required this.adLibsEnabled,
+    required this.durationMinutes,
+    required this.durationMaxMinutes,
+    required this.durationLocked,
+    required this.showFreeVideoDurationHint,
+    required this.difficultyValue,
+    required this.difficultyLabel,
+    required this.config,
+    required this.onStart,
+    required this.onRecordingTap,
+    required this.onDurationLocked,
+    required this.onDurationChanged,
+    required this.onDifficultyChanged,
+    required this.onAdLibsChanged,
+    required this.onAdLibSlotTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Material(
+      color: scheme.surface,
+      elevation: 8,
+      shadowColor: Colors.black.withValues(alpha: 0.16),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: onStart,
+                      icon: Icon(
+                        engineRunning ? Icons.stop : Icons.play_arrow,
+                        size: 26,
+                      ),
+                      label: Text(
+                        engineRunning
+                            ? (isEs ? 'DETENER' : 'STOP')
+                            : (isEs ? 'INICIAR' : 'START'),
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
                         ),
-                      );
-                    },
+                      ),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(52),
+                        backgroundColor:
+                            engineRunning ? Colors.red : Colors.green,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  _RecordToggleButton(
+                    enabled: recordingEnabled,
+                    onTap: onRecordingTap,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _CompactSliderControl(
+                icon: Icons.timer,
+                label: isEs ? 'Duracion' : 'Duration',
+                valueLabel: '${durationMinutes.round()} min',
+                value: durationMinutes,
+                min: 1,
+                max: durationMaxMinutes.toDouble(),
+                divisions: durationMaxMinutes - 1,
+                isLocked: durationLocked,
+                onLockedInteraction: onDurationLocked,
+                onChanged: onDurationChanged,
+              ),
+              if (showFreeVideoDurationHint)
+                const Padding(
+                  padding: EdgeInsets.only(left: 28, bottom: 4),
+                  child: Text(
+                    'Coach Mode unlocks longer videos, or toggle recording off',
+                    style: TextStyle(
+                      color: AppBrandColors.goldDark,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              _CompactSliderControl(
+                icon: Icons.speed,
+                label: isEs ? 'Dificultad' : 'Difficulty',
+                valueLabel: difficultyLabel,
+                value: difficultyValue,
+                min: 0,
+                max: 3,
+                divisions: 3,
+                onChanged: onDifficultyChanged,
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.record_voice_over,
+                      size: 18, color: AppBrandColors.blue),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      isEs ? 'Ad libs' : 'Ad libs',
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                  Switch(
+                    value: adLibsEnabled,
+                    onChanged: onAdLibsChanged,
+                  ),
+                ],
+              ),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                child: adLibsEnabled
+                    ? Padding(
+                        key: const ValueKey('ad-lib-row'),
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Row(
+                          children: [
+                            for (final slot in AdLibSlots.all) ...[
+                              Expanded(
+                                child: _AdLibBox(
+                                  slot: slot,
+                                  isUnlocked: slot.isUnlocked(isPro: isPro),
+                                  canCustomize: slot.canCustomize(isPro: isPro),
+                                  hasCustomAudio:
+                                      slot.canCustomize(isPro: isPro) &&
+                                          config.customAdLibAudioPaths
+                                              .containsKey(slot.id),
+                                  onTap: () => onAdLibSlotTap(slot),
+                                ),
+                              ),
+                              if (slot != AdLibSlots.all.last)
+                                const SizedBox(width: 7),
+                            ],
+                          ],
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactSliderControl extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String valueLabel;
+  final double value;
+  final double min;
+  final double max;
+  final int divisions;
+  final bool isLocked;
+  final VoidCallback? onLockedInteraction;
+  final ValueChanged<double> onChanged;
+
+  const _CompactSliderControl({
+    required this.icon,
+    required this.label,
+    required this.valueLabel,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.divisions,
+    required this.onChanged,
+    this.isLocked = false,
+    this.onLockedInteraction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: Colors.grey),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 72,
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+          ),
+        ),
+        Expanded(
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 4,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+            ),
+            child: Slider(
+              value: value,
+              min: min,
+              max: max,
+              divisions: divisions,
+              onChangeStart: (_) {
+                if (isLocked) onLockedInteraction?.call();
+              },
+              onChanged: (next) {
+                if (isLocked) {
+                  onLockedInteraction?.call();
+                  return;
+                }
+
+                onChanged(next);
+              },
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 72,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerRight,
+            child: Text(
+              valueLabel,
+              maxLines: 1,
+              style: const TextStyle(
+                color: AppBrandColors.blue,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RecordToggleButton extends StatelessWidget {
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _RecordToggleButton({
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 64,
+        height: 52,
+        decoration: BoxDecoration(
+          color: enabled ? AppBrandColors.red : Colors.grey[200],
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: enabled
+              ? [
+                  BoxShadow(
+                    color: AppBrandColors.red.withValues(alpha: 0.28),
+                    blurRadius: 12,
+                    offset: const Offset(0, 5),
+                  ),
+                ]
+              : [],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              enabled ? Icons.videocam : Icons.videocam_off,
+              color: enabled ? Colors.white : Colors.grey[700],
+              size: 20,
+            ),
+            Text(
+              'REC',
+              style: TextStyle(
+                color: enabled ? Colors.white : Colors.grey[700],
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AdLibBox extends StatelessWidget {
+  final AdLibSlot slot;
+  final bool isUnlocked;
+  final bool canCustomize;
+  final bool hasCustomAudio;
+  final VoidCallback onTap;
+
+  const _AdLibBox({
+    required this.slot,
+    required this.isUnlocked,
+    required this.canCustomize,
+    required this.hasCustomAudio,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = !isUnlocked
+        ? Colors.grey
+        : hasCustomAudio
+            ? AppBrandColors.blue
+            : AppBrandColors.goldDark;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        height: 42,
+        decoration: BoxDecoration(
+          color: isUnlocked
+              ? color.withValues(alpha: 0.12)
+              : Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isUnlocked ? color : Colors.grey.withValues(alpha: 0.35),
+          ),
+        ),
+        child: Stack(
+          children: [
+            Center(
+              child: Text(
+                '${slot.number}',
+                style: TextStyle(
+                  color: isUnlocked ? color : Colors.grey,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+            if (!isUnlocked || !canCustomize)
+              Positioned(
+                top: 4,
+                right: 4,
+                child: Icon(
+                  Icons.lock,
+                  size: 12,
+                  color: isUnlocked ? AppBrandColors.goldDark : Colors.grey,
+                ),
+              ),
+            if (hasCustomAudio)
+              const Positioned(
+                bottom: 4,
+                right: 4,
+                child: Icon(
+                  Icons.mic,
+                  size: 12,
+                  color: AppBrandColors.blue,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CalloutToggleScroller extends StatelessWidget {
+  final List<Callout> callouts;
+  final DrillConfig config;
+  final WorkoutPreset dailyMission;
+  final bool isEs;
+  final VoidCallback onWorkoutsTap;
+  final void Function(Callout callout, bool enabled) onToggle;
+  final ValueChanged<Callout> onRecordTapped;
+  final VoidCallback onAddNewTapped;
+
+  const _CalloutToggleScroller({
+    required this.callouts,
+    required this.config,
+    required this.dailyMission,
+    required this.isEs,
+    required this.onWorkoutsTap,
+    required this.onToggle,
+    required this.onRecordTapped,
+    required this.onAddNewTapped,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 28),
+      children: [
+        _TrainWorkoutAccessCard(
+          isEs: isEs,
+          dailyMission: dailyMission,
+          onTap: onWorkoutsTap,
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Text(
+              isEs ? 'Comandos' : 'Move toggles',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+            ),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppBrandColors.blueLight,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text(
+                'Options',
+                style: TextStyle(
+                  color: AppBrandColors.blue,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        _CalloutGridWithCue(
+          callouts: callouts,
+          config: config,
+          onToggle: onToggle,
+          onRecordTapped: onRecordTapped,
+          onAddNewTapped: onAddNewTapped,
+        ),
+      ],
+    );
+  }
+}
+
+class _TrainWorkoutAccessCard extends StatelessWidget {
+  final bool isEs;
+  final WorkoutPreset dailyMission;
+  final VoidCallback onTap;
+
+  const _TrainWorkoutAccessCard({
+    required this.isEs,
+    required this.dailyMission,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppBrandColors.black,
+          borderRadius: BorderRadius.circular(8),
+          border:
+              Border.all(color: AppBrandColors.gold.withValues(alpha: 0.55)),
+          boxShadow: [
+            BoxShadow(
+              color: AppBrandColors.red.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: AppBrandColors.red,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.view_carousel,
+                    color: AppBrandColors.white,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isEs ? 'Workouts' : 'Workouts',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  color: AppBrandColors.white,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        isEs
+                            ? 'Presets listos para entrenar'
+                            : 'Ready-made training presets',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AppBrandColors.white.withValues(alpha: 0.68),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: AppBrandColors.gold,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        isEs ? 'Abrir' : 'Open',
+                        style: const TextStyle(
+                          color: AppBrandColors.black,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(width: 3),
+                      const Icon(
+                        Icons.chevron_right,
+                        size: 16,
+                        color: AppBrandColors.black,
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-          ),
-          DraggableScrollableSheet(
-            initialChildSize: 0.18,
-            minChildSize: 0.18,
-            maxChildSize: 0.65,
-            builder: (BuildContext context, ScrollController scrollController) {
-              return Container(
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surface,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.2),
-                      blurRadius: 15,
-                      offset: const Offset(0, -5),
-                    ),
-                  ],
-                  borderRadius:
-                      const BorderRadius.vertical(top: Radius.circular(24)),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppBrandColors.white.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: AppBrandColors.white.withValues(alpha: 0.1),
                 ),
-                child: SingleChildScrollView(
-                  controller: scrollController,
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
                     child: Column(
-                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Center(
-                          child: Container(
-                            width: 40,
-                            height: 5,
-                            margin: const EdgeInsets.only(bottom: 20),
-                            decoration: BoxDecoration(
-                              color: Colors.grey[300],
-                              borderRadius: BorderRadius.circular(10),
-                            ),
+                        Text(
+                          isEs ? 'Mision de hoy' : "Today's mission",
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppBrandColors.gold,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 56,
-                          child: FilledButton.icon(
-                            onPressed: () {
-                              // BUG FIX: Prevent Silent Drill Start
-                              if (config.enabledCalloutIds.isEmpty) {
-                                _showFadingToast(
-                                    context,
-                                    isEs
-                                        ? 'Selecciona al menos un comando'
-                                        : 'Select at least one callout');
-                                return;
-                              }
-
-                              if (engine.running) {
-                                ref.read(drillEngineProvider.notifier).stop();
-                              } else {
-                                if (calloutsAsync.isLoading) return;
-                                if (calloutsAsync.hasError) {
-                                  _showFadingToast(
-                                      context,
-                                      isEs
-                                          ? 'Error de comandos'
-                                          : 'Callouts unavailable');
-                                  return;
-                                }
-
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                      builder: (_) =>
-                                          const DrillRunnerScreen()),
-                                );
-                              }
-                            },
-                            style: FilledButton.styleFrom(
-                              backgroundColor:
-                                  engine.running ? Colors.red : Colors.green,
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16)),
-                            ),
-                            icon: Icon(
-                                engine.running ? Icons.stop : Icons.play_arrow,
-                                size: 32),
-                            label: Text(
-                              engine.running
-                                  ? (isEs ? 'DETENER' : 'STOP')
-                                  : (isEs ? 'INICIAR' : 'START'),
-                              style: const TextStyle(
-                                  fontSize: 20, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        const Divider(),
-                        const SizedBox(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(isEs ? 'GRABAR VIDEO' : 'RECORD VIDEO',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.grey)),
-                            const SizedBox(width: 12),
-                            GestureDetector(
-                              onTap: () async {
-                                final enableVideo =
-                                    !ref.read(drillConfigProvider).videoEnabled;
-                                notifier.setVideoEnabled(enableVideo);
-
-                                final drillEngine =
-                                    ref.read(drillEngineProvider.notifier);
-                                if (enableVideo) {
-                                  if (!isPro) {
-                                    _showFreeVideoDurationLockMessage(
-                                      context,
-                                      isEs: isEs,
-                                    );
-                                  }
-                                  if (_legacyFreeVideoLimitMessageEnabled &&
-                                      !isPro) {
-                                    if (ref
-                                            .read(drillConfigProvider)
-                                            .totalDurationSeconds >
-                                        RecordingPolicy
-                                            .freeRecordingLimitSeconds) {
-                                      setState(() {
-                                        _showFreeVideoDurationHint = true;
-                                      });
-                                    }
-                                    _showFadingToast(
-                                        context,
-                                        isEs
-                                            ? 'Límite de 60s'
-                                            : 'Free limit: 60s');
-                                  }
-                                  await drillEngine.preloadCamera();
-                                } else {
-                                  setState(() {
-                                    _showFreeVideoDurationHint = false;
-                                  });
-                                  await drillEngine.disposeCamera();
-                                }
-                              },
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 300),
-                                height: 48,
-                                width: 48,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: config.videoEnabled
-                                      ? Colors.red
-                                      : Colors.grey[300],
-                                  boxShadow: config.videoEnabled
-                                      ? [
-                                          BoxShadow(
-                                              color:
-                                                  Colors.red.withValues(alpha: 0.5),
-                                              blurRadius: 10,
-                                              spreadRadius: 2)
-                                        ]
-                                      : [],
-                                ),
-                                child: Icon(
-                                  config.videoEnabled
-                                      ? Icons.videocam
-                                      : Icons.videocam_off,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        Row(
-                          children: [
-                            const Icon(Icons.timer,
-                                size: 20, color: Colors.grey),
-                            const SizedBox(width: 8),
-                            Text(isEs ? 'Duración:' : 'Duration:',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold)),
-                            const Spacer(),
-                            Text(
-                              '${durationSliderValue.round()} min',
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 16),
-                            ),
-                          ],
-                        ),
-                        if (showFreeVideoDurationHint)
-                          const Padding(
-                            padding: EdgeInsets.only(top: 6),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                SizedBox(width: 28),
-                                Expanded(
-                                  child: Text(
-                                    'Upgrade to Pro for longer videos or toggle recording for longer drills',
-                                    style: TextStyle(
-                                      color: AppBrandColors.goldDark,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      height: 1.2,
-                                    ),
+                        const SizedBox(height: 3),
+                        Text(
+                          dailyMission.title(isEs: isEs),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: AppBrandColors.white,
+                                    fontWeight: FontWeight.w900,
                                   ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        Slider(
-                          value: durationSliderValue,
-                          min: 1,
-                          max: durationSliderMaxMinutes.toDouble(),
-                          divisions: durationSliderMaxMinutes - 1,
-                          label:
-                              '${durationSliderValue.round().toString()} min',
-                          onChangeStart: (_) {
-                            if (isFreeRecordingLocked) {
-                              _showFreeVideoDurationLockMessage(
-                                context,
-                                isEs: isEs,
-                              );
-                            }
-                          },
-                          onChanged: (val) {
-                            if (isFreeRecordingLocked) {
-                              _showFreeVideoDurationLockMessage(
-                                context,
-                                isEs: isEs,
-                              );
-                              return;
-                            }
-
-                            final requestedSeconds = (val * 60).round();
-                            notifier.setTotalDurationSeconds(requestedSeconds);
-                            if (_showFreeVideoDurationHint) {
-                              setState(() {
-                                _showFreeVideoDurationHint = false;
-                              });
-                            }
-                          },
                         ),
-                        Row(
-                          children: [
-                            const Icon(Icons.speed,
-                                size: 20, color: Colors.grey),
-                            const SizedBox(width: 8),
-                            Text(isEs ? 'Dificultad:' : 'Difficulty:',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold)),
-                            const Spacer(),
-                            Text(
-                              _difficultyLevels[_difficultyValue.round()].$1,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                  color: AppBrandColors.blue),
-                            ),
-                          ],
-                        ),
-                        Slider(
-                          value: _difficultyValue,
-                          min: 0,
-                          max: 3,
-                          divisions: 3,
-                          onChanged: _updateDifficulty,
-                        ),
-                        const SizedBox(height: 30),
                       ],
                     ),
                   ),
-                ),
-              );
-            },
+                  const SizedBox(width: 10),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      _TrainWorkoutPill(
+                        icon: Icons.timer,
+                        text: dailyMission.durationLabel(isEs: isEs),
+                      ),
+                      _TrainWorkoutPill(
+                        icon: Icons.apps,
+                        text: isEs ? '40 presets' : '40 presets',
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TrainWorkoutPill extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _TrainWorkoutPill({
+    required this.icon,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppBrandColors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppBrandColors.gold),
+          const SizedBox(width: 5),
+          Text(
+            text,
+            style: const TextStyle(
+              color: AppBrandColors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
           ),
         ],
       ),
     );
   }
+}
+
+class _CalloutGridWithCue extends StatelessWidget {
+  final List<Callout> callouts;
+  final DrillConfig config;
+  final void Function(Callout callout, bool enabled) onToggle;
+  final ValueChanged<Callout> onRecordTapped;
+  final VoidCallback onAddNewTapped;
+
+  const _CalloutGridWithCue({
+    required this.callouts,
+    required this.config,
+    required this.onToggle,
+    required this.onRecordTapped,
+    required this.onAddNewTapped,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const cueWidth = 26.0;
+        const spacing = 8.0;
+        const aspectRatio = 0.92;
+        final columns = constraints.maxWidth >= 560 ? 4 : 3;
+        final gridWidth = constraints.maxWidth - cueWidth;
+        final tileWidth = (gridWidth - spacing * (columns - 1)) / columns;
+        final tileHeight = tileWidth / aspectRatio;
+        final totalTiles = callouts.length + 1;
+        final rows = (totalTiles / columns).ceil();
+        final gridHeight =
+            rows * tileHeight + (rows > 0 ? (rows - 1) * spacing : 0);
+
+        return SizedBox(
+          height: gridHeight,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                width: gridWidth,
+                child: GridView.builder(
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: columns,
+                    mainAxisSpacing: spacing,
+                    crossAxisSpacing: spacing,
+                    childAspectRatio: aspectRatio,
+                  ),
+                  itemCount: totalTiles,
+                  itemBuilder: (context, index) {
+                    if (index == callouts.length) {
+                      return AddNewCalloutTile(
+                        compact: true,
+                        onTap: onAddNewTapped,
+                      );
+                    }
+
+                    final callout = callouts[index];
+                    return HomeCalloutTile(
+                      compact: true,
+                      callout: callout,
+                      enabled: config.enabledCalloutIds.contains(callout.id),
+                      onChanged: (enabled) => onToggle(callout, enabled),
+                      onRecordTapped: () => onRecordTapped(callout),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              const SizedBox(
+                width: 18,
+                child: CustomPaint(
+                  painter: _ScrollCueRailPainter(),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ScrollCueRailPainter extends CustomPainter {
+  const _ScrollCueRailPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centerX = size.width / 2;
+    final centerY = size.height / 2;
+    final linePaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.22)
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+    final markerPaint = Paint()
+      ..color = AppBrandColors.red
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawLine(
+      Offset(centerX, 4),
+      Offset(centerX, centerY - 18),
+      linePaint,
+    );
+    canvas.drawLine(
+      Offset(centerX, centerY + 18),
+      Offset(centerX, size.height - 4),
+      linePaint,
+    );
+    canvas.drawCircle(Offset(centerX, centerY), 3.5, markerPaint);
+    canvas.drawLine(
+      Offset(centerX - 5, centerY + 11),
+      Offset(centerX + 5, centerY - 11),
+      markerPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _FadeToast extends StatefulWidget {
@@ -573,377 +1538,6 @@ class _FadeToastState extends State<_FadeToast>
               const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           textAlign: TextAlign.center,
         ),
-      ),
-    );
-  }
-}
-
-class _CalloutTile extends ConsumerWidget {
-  final Callout callout;
-  final bool enabled;
-  final ValueChanged<bool> onChanged;
-  final VoidCallback onRecordTapped;
-
-  const _CalloutTile({
-    required this.callout,
-    required this.enabled,
-    required this.onChanged,
-    required this.onRecordTapped,
-  });
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final config = ref.watch(drillConfigProvider);
-    final savedAudioPath =
-        config.customAudioPaths[callout.id] ?? callout.audioUrl;
-    final hasRecording = savedAudioPath != null && savedAudioPath.isNotEmpty;
-    final overrideMap = config.calloutOverrideDurations;
-    final currentDuration =
-        overrideMap[callout.id] ?? callout.defaultDurationSeconds;
-
-    final isPro = ref.watch(isProProvider);
-    final proPurchase = ref.watch(proPurchaseProvider);
-    final lang = ref.watch(languageProvider);
-    final displayName = lang == 'es' ? callout.nameEs : callout.nameEn;
-
-    return Card(
-      elevation: enabled ? 3 : 1,
-      color: enabled
-          ? Theme.of(context)
-              .colorScheme
-              .primaryContainer
-              .withValues(alpha: 0.3)
-          : Theme.of(context).colorScheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: enabled
-            ? BorderSide(color: Theme.of(context).colorScheme.primary, width: 2)
-            : BorderSide.none,
-      ),
-      child: InkWell(
-        onTap: () => onChanged(!enabled),
-        borderRadius: BorderRadius.circular(16),
-        child: Stack(
-          children: [
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    displayName,
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: enabled
-                          ? Theme.of(context).colorScheme.onSurface
-                          : Colors.grey,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  if (enabled)
-                    Text("ON",
-                        style: TextStyle(
-                            fontSize: 10,
-                            color: Theme.of(context).colorScheme.primary,
-                            fontWeight: FontWeight.w900)),
-                ],
-              ),
-            ),
-            Positioned(
-              top: 4,
-              right: 4,
-              child: GestureDetector(
-                onTap: () {
-                  if (isPro) {
-                    onRecordTapped();
-                  } else if (proPurchase.canBuy) {
-                    unawaited(ref.read(proPurchaseProvider.notifier).buyPro());
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          proPurchase.errorMessage ??
-                              'Snap&Go Pro is loading. Try again in a moment.',
-                        ),
-                      ),
-                    );
-                  }
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color:
-                        Theme.of(context).canvasColor.withValues(alpha: 0.5),
-                  ),
-                  child: Icon(
-                    !isPro && !callout.isCustom
-                        ? Icons.lock
-                        : (hasRecording ? Icons.mic : Icons.mic_none),
-                    size: 16,
-                    color: !isPro
-                        ? AppBrandColors.gold
-                        : (hasRecording ? AppBrandColors.blue : Colors.grey),
-                  ),
-                ),
-              ),
-            ),
-            if (callout.type == 'Duration')
-              Positioned(
-                bottom: 4,
-                right: 4,
-                child: GestureDetector(
-                  onTap: () {
-                    if (!enabled) return;
-                    _showDurationPicker(
-                        context, ref, callout.id, currentDuration);
-                  },
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: enabled
-                          ? Theme.of(context).colorScheme.primary
-                          : Colors.grey[300],
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      "${currentDuration}s",
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: enabled ? Colors.white : Colors.grey[600],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showDurationPicker(
-      BuildContext context, WidgetRef ref, String id, int current) {
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) {
-        return Container(
-          padding: const EdgeInsets.all(20),
-          height: 200,
-          child: Column(
-            children: [
-              const Text("Select Duration",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-              const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                // BUG FIX: Added the 45s interval that was requested!
-                children: [5, 15, 30, 45, 60].map((val) {
-                  final isSelected = val == current;
-                  return ChoiceChip(
-                    label: Text("${val}s"),
-                    selected: isSelected,
-                    onSelected: (_) {
-                      ref
-                          .read(drillConfigProvider.notifier)
-                          .setCalloutDuration(id, val);
-                      Navigator.pop(ctx);
-                    },
-                  );
-                }).toList(),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _RecordingSheetContent extends ConsumerStatefulWidget {
-  final String calloutId;
-  final String calloutName;
-  final String? initialAudioPath;
-
-  const _RecordingSheetContent({
-    required this.calloutId,
-    required this.calloutName,
-    this.initialAudioPath,
-  });
-
-  @override
-  ConsumerState<_RecordingSheetContent> createState() =>
-      _RecordingSheetContentState();
-}
-
-class _RecordingSheetContentState
-    extends ConsumerState<_RecordingSheetContent> {
-  final recorder = AudioRecorder();
-  final audioPlayer = AudioPlayer();
-  bool isRecording = false;
-  String? recordedPath;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(audioPlayer.setPlayerMode(PlayerMode.mediaPlayer));
-    unawaited(audioPlayer.setReleaseMode(ReleaseMode.stop));
-  }
-
-  @override
-  void dispose() {
-    recorder.dispose();
-    audioPlayer.dispose();
-    super.dispose();
-  }
-
-  Future<void> _startRecording() async {
-    if (await recorder.hasPermission()) {
-      final dir = await getApplicationDocumentsDirectory();
-      final path =
-          '${dir.path}/${widget.calloutId}_${DateTime.now().millisecondsSinceEpoch}.m4a';
-
-      const config = RecordConfig(encoder: AudioEncoder.aacLc);
-      await recorder.start(config, path: path);
-
-      setState(() => isRecording = true);
-    }
-  }
-
-  Future<void> _stopRecording() async {
-    final path = await recorder.stop();
-    setState(() {
-      isRecording = false;
-      recordedPath = path;
-    });
-
-    if (path != null) {
-      ref
-          .read(drillConfigProvider.notifier)
-          .updateCalloutAudio(widget.calloutId, path);
-    }
-  }
-
-  Future<void> _playPreview(String path) async {
-    try {
-      await audioPlayer.stop();
-      await audioPlayer.play(DeviceFileSource(path));
-    } catch (e) {
-      debugPrint('Could not play custom callout preview: $e');
-    }
-  }
-
-  Future<void> _deleteOverrideRecording(String path) async {
-    await audioPlayer.stop();
-    ref.read(drillConfigProvider.notifier).removeCalloutAudio(widget.calloutId);
-
-    setState(() {
-      recordedPath = null;
-      isRecording = false;
-    });
-
-    try {
-      final file = File(path);
-      if (await file.exists()) {
-        await file.delete();
-      }
-    } catch (e) {
-      debugPrint('Could not delete custom callout audio: $e');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final config = ref.watch(drillConfigProvider);
-    final overridePath = config.customAudioPaths[widget.calloutId];
-    final resettablePath = recordedPath ?? overridePath;
-    final activePath = resettablePath ?? widget.initialAudioPath;
-    final lang = ref.watch(languageProvider);
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2))),
-          const SizedBox(height: 24),
-          Text(
-            isRecording
-                ? (lang == 'es' ? 'Grabando...' : 'Recording...')
-                : (lang == 'es'
-                    ? 'Voz: ${widget.calloutName}'
-                    : 'Voice: ${widget.calloutName}'),
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-          const SizedBox(height: 32),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              Column(
-                children: [
-                  GestureDetector(
-                    onTap: isRecording ? _stopRecording : _startRecording,
-                    child: CircleAvatar(
-                      radius: 36,
-                      backgroundColor:
-                          isRecording ? Colors.red : Colors.redAccent,
-                      child: Icon(isRecording ? Icons.stop : Icons.mic,
-                          color: Colors.white, size: 32),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(isRecording ? "STOP" : "REC"),
-                ],
-              ),
-              if (activePath != null && !isRecording)
-                Column(
-                  children: [
-                    GestureDetector(
-                      onTap: () => _playPreview(activePath),
-                      child: const CircleAvatar(
-                        radius: 36,
-                        backgroundColor: AppBrandColors.blue,
-                        child: Icon(Icons.play_arrow,
-                            color: Colors.white, size: 32),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text("PLAY"),
-                  ],
-                ),
-              if (resettablePath != null &&
-                  resettablePath != widget.initialAudioPath &&
-                  !isRecording)
-                Column(
-                  children: [
-                    GestureDetector(
-                      onTap: () => _deleteOverrideRecording(resettablePath),
-                      child: const CircleAvatar(
-                        radius: 36,
-                        backgroundColor: AppBrandColors.goldDark,
-                        child: Icon(Icons.delete_outline,
-                            color: Colors.white, size: 32),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(lang == 'es' ? "BORRAR" : "DELETE"),
-                  ],
-                ),
-            ],
-          ),
-          const SizedBox(height: 32),
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(lang == 'es' ? 'Listo' : 'Done'),
-          ),
-        ],
       ),
     );
   }

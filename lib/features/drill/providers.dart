@@ -2,30 +2,121 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../billing/pro_purchase.dart';
+import '../badges/badge_progress_provider.dart';
 import '../../data/repositories.dart';
 import 'models.dart';
 import 'drill_engine.dart';
+import 'workout_presets.dart';
 
 export 'models.dart';
 export 'drill_engine.dart';
+export 'training_progress_provider.dart';
+export 'workout_presets.dart';
+export '../badges/badge_progress_provider.dart';
 export '../billing/pro_purchase.dart';
+
+const _presetTimedCalloutIds = {
+  'stance',
+  'hand_fight',
+  'high_knees',
+  'foot_fire',
+};
 
 final sharedPrefsProvider = FutureProvider<SharedPreferences>((ref) async {
   return await SharedPreferences.getInstance();
 });
 
-final languageProvider = StateProvider<String>((ref) => 'en');
+final languageProvider = NotifierProvider<LanguageNotifier, String>(() {
+  return LanguageNotifier();
+});
+
+class LanguageNotifier extends Notifier<String> {
+  static const _keyLanguage = 'language_code';
+
+  @override
+  String build() {
+    _load();
+    return 'en';
+  }
+
+  Future<void> _load() async {
+    try {
+      final prefs = await ref.read(sharedPrefsProvider.future);
+      final saved = prefs.getString(_keyLanguage);
+      if (saved == 'en' || saved == 'es') {
+        state = saved!;
+      }
+    } catch (e) {
+      debugPrint('Error loading language: $e');
+    }
+  }
+
+  Future<void> setLanguage(String languageCode) async {
+    if (languageCode != 'en' && languageCode != 'es') {
+      return;
+    }
+
+    state = languageCode;
+    final prefs = await ref.read(sharedPrefsProvider.future);
+    await prefs.setString(_keyLanguage, languageCode);
+  }
+}
+
+enum CalloutButtonStyle {
+  classic,
+  modern,
+}
+
+final calloutButtonStyleProvider =
+    NotifierProvider<CalloutButtonStyleNotifier, CalloutButtonStyle>(() {
+  return CalloutButtonStyleNotifier();
+});
+
+class CalloutButtonStyleNotifier extends Notifier<CalloutButtonStyle> {
+  static const _keyCalloutButtonStyle = 'callout_button_style';
+
+  @override
+  CalloutButtonStyle build() {
+    _load();
+    return CalloutButtonStyle.modern;
+  }
+
+  Future<void> _load() async {
+    try {
+      final prefs = await ref.read(sharedPrefsProvider.future);
+      final saved = prefs.getString(_keyCalloutButtonStyle);
+      if (saved == CalloutButtonStyle.classic.name) {
+        state = CalloutButtonStyle.classic;
+      } else if (saved == CalloutButtonStyle.modern.name) {
+        state = CalloutButtonStyle.modern;
+      }
+    } catch (e) {
+      debugPrint('Error loading callout button style: $e');
+    }
+  }
+
+  Future<void> setStyle(CalloutButtonStyle style) async {
+    state = style;
+    final prefs = await ref.read(sharedPrefsProvider.future);
+    await prefs.setString(_keyCalloutButtonStyle, style.name);
+  }
+}
 
 final proPurchaseProvider =
     NotifierProvider<ProPurchaseController, ProPurchaseState>(() {
   return ProPurchaseController();
 });
 
+final dailyMissionProvider = Provider<WorkoutPreset>((ref) {
+  return workoutPresetForDate(DateTime.now());
+});
+
 final isProProvider = Provider<bool>((ref) {
   return ref.watch(proPurchaseProvider.select((state) => state.isPro));
 });
 
-final drillConfigProvider = NotifierProvider<DrillConfigNotifier, DrillConfig>(() {
+final drillConfigProvider =
+    NotifierProvider<DrillConfigNotifier, DrillConfig>(() {
   return DrillConfigNotifier();
 });
 
@@ -48,7 +139,7 @@ class DrillConfigNotifier extends Notifier<DrillConfig> {
     try {
       final prefs = await ref.read(sharedPrefsProvider.future);
       final jsonString = prefs.getString(_keyConfig);
-      
+
       if (jsonString != null) {
         state = DrillConfig.fromJson(jsonString);
       }
@@ -61,14 +152,17 @@ class DrillConfigNotifier extends Notifier<DrillConfig> {
     final prefs = await ref.read(sharedPrefsProvider.future);
     await prefs.setString(_keyConfig, state.toJson());
   }
-  
+
   void setCalloutDuration(String id, int duration) {
     final map = Map<String, int>.from(state.calloutOverrideDurations);
     map[id] = duration;
-    state = state.copyWith(calloutOverrideDurations: map);
+    state = state.copyWith(
+      calloutOverrideDurations: map,
+      activeWorkoutPresetId: null,
+    );
     _save();
   }
-  
+
   void toggleCallout(String id, {required bool enabled}) {
     final ids = Set<String>.from(state.enabledCalloutIds);
     if (enabled) {
@@ -76,17 +170,61 @@ class DrillConfigNotifier extends Notifier<DrillConfig> {
     } else {
       ids.remove(id);
     }
-    state = state.copyWith(enabledCalloutIds: ids);
+    state = state.copyWith(
+      enabledCalloutIds: ids,
+      activeWorkoutPresetId: null,
+    );
     _save();
   }
 
-  void setIntervalRange({required double minSeconds, required double maxSeconds}) {
-    state = state.copyWith(minIntervalSeconds: minSeconds, maxIntervalSeconds: maxSeconds);
+  void setEnabledCalloutIds(Set<String> ids) {
+    state = state.copyWith(
+      enabledCalloutIds: Set<String>.from(ids),
+      activeWorkoutPresetId: null,
+    );
+    _save();
+  }
+
+  void applyWorkoutPreset(
+    WorkoutPreset preset, {
+    required int totalDurationSeconds,
+    required double minIntervalSeconds,
+    required double maxIntervalSeconds,
+    bool? videoEnabled,
+  }) {
+    final calloutDurations = Map<String, int>.from(
+      state.calloutOverrideDurations,
+    )..removeWhere((id, _) => _presetTimedCalloutIds.contains(id));
+
+    calloutDurations.addAll(preset.resolveTimedCalloutDurations());
+
+    state = state.copyWith(
+      enabledCalloutIds: preset.calloutIds.toSet(),
+      totalDurationSeconds: totalDurationSeconds,
+      minIntervalSeconds: minIntervalSeconds,
+      maxIntervalSeconds: maxIntervalSeconds,
+      calloutOverrideDurations: calloutDurations,
+      videoEnabled: videoEnabled,
+      activeWorkoutPresetId: preset.id,
+    );
+    _save();
+  }
+
+  void setIntervalRange(
+      {required double minSeconds, required double maxSeconds}) {
+    state = state.copyWith(
+      minIntervalSeconds: minSeconds,
+      maxIntervalSeconds: maxSeconds,
+      activeWorkoutPresetId: null,
+    );
     _save();
   }
 
   void setTotalDurationSeconds(int seconds) {
-    state = state.copyWith(totalDurationSeconds: seconds);
+    state = state.copyWith(
+      totalDurationSeconds: seconds,
+      activeWorkoutPresetId: null,
+    );
     _save();
   }
 
@@ -134,7 +272,8 @@ class DrillConfigNotifier extends Notifier<DrillConfig> {
   }
 }
 
-final userProfileProvider = NotifierProvider<UserProfileNotifier, UserProfile>(() {
+final userProfileProvider =
+    NotifierProvider<UserProfileNotifier, UserProfile>(() {
   return UserProfileNotifier();
 });
 
@@ -156,7 +295,7 @@ class UserProfileNotifier extends Notifier<UserProfile> {
     final savedTeam = prefs.getString(_keyTeam);
     final savedAge = prefs.getInt(_keyAge) ?? 18;
     final savedImage = prefs.getString(_keyImage);
-    
+
     state = state.copyWith(
       weightLbs: savedWeight,
       teamName: savedTeam,
@@ -190,33 +329,94 @@ class UserProfileNotifier extends Notifier<UserProfile> {
   }
 }
 
-final drillEngineProvider = NotifierProvider<DrillEngineNotifier, DrillState>(() {
+final drillEngineProvider =
+    NotifierProvider<DrillEngineNotifier, DrillState>(() {
   return DrillEngineNotifier();
 });
 
-final calloutsProvider = AsyncNotifierProvider<CalloutsNotifier, List<Callout>>(() {
+final calloutsProvider =
+    AsyncNotifierProvider<CalloutsNotifier, List<Callout>>(() {
   return CalloutsNotifier();
 });
 
 class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
   final List<Callout> _defaults = [
-    const Callout(id: 'shot', nameEn: 'Shot', nameEs: 'Tiro', type: 'Movement', audioAssetAlias: 'Shot'),
-    const Callout(id: 'sprawl', nameEn: 'Sprawl', nameEs: 'Sprawl', type: 'Movement', audioAssetAlias: 'Sprawl'),
-    const Callout(id: 'stance', nameEn: 'Stance', nameEs: 'Postura', type: 'Duration', defaultDurationSeconds: 15, audioAssetAlias: 'Stance'),
-    const Callout(id: 'circle', nameEn: 'Circle/Spin', nameEs: 'Círculo/Giro', type: 'Movement', audioAssetAlias: 'Circle'), 
-    const Callout(id: 'down_block', nameEn: 'Down Block', nameEs: 'Bloqueo Abajo', type: 'Movement', audioAssetAlias: 'Down_Block'),
-    const Callout(id: 'fake', nameEn: 'Fake', nameEs: 'Finta', type: 'Movement', audioAssetAlias: 'Fake'),
-    const Callout(id: 'level_change', nameEn: 'Level Change', nameEs: 'Cambio de Nivel', type: 'Movement', audioAssetAlias: 'Level_Change'),
-    const Callout(id: 'snap_down', nameEn: 'Snap Down', nameEs: 'Jalón', type: 'Movement', audioAssetAlias: 'Snap_Down'),
-    const Callout(id: 'high_knees', nameEn: 'High Knees', nameEs: 'Rodillas Altas', type: 'Duration', defaultDurationSeconds: 15, audioAssetAlias: 'High_Knees'),
-    const Callout(id: 'foot_fire', nameEn: 'Foot Fire', nameEs: 'Fuego Pies', type: 'Duration', defaultDurationSeconds: 5, audioAssetAlias: 'Foot_Fire'),
-    const Callout(id: 'hand_fight', nameEn: 'Hand Fight', nameEs: 'Manos', type: 'Duration', defaultDurationSeconds: 15, audioAssetAlias: 'Hand_Fight'),
+    const Callout(
+        id: 'shot',
+        nameEn: 'Shot',
+        nameEs: 'Tiro',
+        type: 'Movement',
+        audioAssetAlias: 'Shot'),
+    const Callout(
+        id: 'sprawl',
+        nameEn: 'Sprawl',
+        nameEs: 'Sprawl',
+        type: 'Movement',
+        audioAssetAlias: 'Sprawl'),
+    const Callout(
+        id: 'stance',
+        nameEn: 'Stance',
+        nameEs: 'Postura',
+        type: 'Duration',
+        defaultDurationSeconds: 15,
+        audioAssetAlias: 'Stance'),
+    const Callout(
+        id: 'circle',
+        nameEn: 'Circle/Spin',
+        nameEs: 'Círculo/Giro',
+        type: 'Movement',
+        audioAssetAlias: 'Circle'),
+    const Callout(
+        id: 'down_block',
+        nameEn: 'Down Block',
+        nameEs: 'Bloqueo Abajo',
+        type: 'Movement',
+        audioAssetAlias: 'Down_Block'),
+    const Callout(
+        id: 'fake',
+        nameEn: 'Fake',
+        nameEs: 'Finta',
+        type: 'Movement',
+        audioAssetAlias: 'Fake'),
+    const Callout(
+        id: 'level_change',
+        nameEn: 'Level Change',
+        nameEs: 'Cambio de Nivel',
+        type: 'Movement',
+        audioAssetAlias: 'Level_Change'),
+    const Callout(
+        id: 'snap_down',
+        nameEn: 'Snap Down',
+        nameEs: 'Jalón',
+        type: 'Movement',
+        audioAssetAlias: 'Snap_Down'),
+    const Callout(
+        id: 'high_knees',
+        nameEn: 'High Knees',
+        nameEs: 'Rodillas Altas',
+        type: 'Duration',
+        defaultDurationSeconds: 15,
+        audioAssetAlias: 'High_Knees'),
+    const Callout(
+        id: 'foot_fire',
+        nameEn: 'Foot Fire',
+        nameEs: 'Fuego Pies',
+        type: 'Duration',
+        defaultDurationSeconds: 5,
+        audioAssetAlias: 'Foot_Fire'),
+    const Callout(
+        id: 'hand_fight',
+        nameEn: 'Hand Fight',
+        nameEs: 'Manos',
+        type: 'Duration',
+        defaultDurationSeconds: 15,
+        audioAssetAlias: 'Hand_Fight'),
   ];
 
   @override
   Future<List<Callout>> build() async {
     final prefs = await ref.watch(sharedPrefsProvider.future);
-    
+
     // Utilize the newly unified repository
     final repo = LocalCalloutRepository(prefs);
     final customCallouts = repo.getCustomCallouts();
@@ -226,8 +426,13 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
 
   Future<void> addCustomCallout(Callout newCallout) async {
     final currentList = state.value ?? _defaults;
-    state = AsyncValue.data([...currentList, newCallout]);
+    final nextList = [...currentList, newCallout];
+    state = AsyncValue.data(nextList);
     await _saveToDisk();
+    final customCount = nextList.where((callout) => callout.isCustom).length;
+    await ref
+        .read(badgeProgressProvider.notifier)
+        .recordCustomCalloutCreated(customCount);
   }
 
   Future<void> deleteCallout(String id) async {
@@ -245,20 +450,21 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
       }
       return c;
     }).toList();
-    
+
     state = AsyncValue.data(updatedList);
     await _saveToDisk();
   }
 
   Future<void> _saveToDisk() async {
     final prefs = await ref.read(sharedPrefsProvider.future);
-    
+
     // Utilize the unified repository to save
     final repo = LocalCalloutRepository(prefs);
     await repo.saveCustomCallouts(state.value ?? []);
   }
 }
 
-final calloutsForActivePackProvider = FutureProvider<List<Callout>>((ref) async {
+final calloutsForActivePackProvider =
+    FutureProvider<List<Callout>>((ref) async {
   return ref.watch(calloutsProvider.future);
 });

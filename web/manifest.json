@@ -1,11 +1,11 @@
 {
-    "name": "shot_stance_sprawl",
-    "short_name": "shot_stance_sprawl",
+    "name": "Snap & Go Shadow Wrestling Coach",
+    "short_name": "Snap & Go",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#090000",
+    "theme_color": "#B80017",
+    "description": "Shadow wrestling drills, callouts, review videos, streaks, and coach assignments.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

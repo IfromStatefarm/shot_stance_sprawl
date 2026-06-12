@@ -1,54 +1,31 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:record/record.dart';
-import 'package:audioplayers/audioplayers.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_theme.dart';
-import 'features/drill/ad_libs.dart';
+import 'features/drill/presentation/widgets/settings_ad_lib_section.dart';
+import 'features/drill/presentation/widgets/settings_custom_callouts_section.dart';
+import 'features/drill/presentation/widgets/settings_purchase_section.dart';
+import 'features/drill/presentation/widgets/settings_profile_section.dart';
 import 'features/drill/providers.dart';
+import 'features/onboarding/onboarding.dart';
+import 'features/onboarding/workout_reminder_notifications.dart';
+import 'features/recordings/saved_recordings_provider.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
-
-  String _proSubtitle(String lang, ProPurchaseState purchaseState) {
-    if (purchaseState.isPro) {
-      return lang == 'es' ? 'Activo' : 'Active';
-    }
-    if (purchaseState.loading) {
-      return lang == 'es'
-          ? 'Cargando opciones de compra'
-          : 'Loading purchase options';
-    }
-    if (purchaseState.errorMessage != null) {
-      return purchaseState.errorMessage!;
-    }
-    final product = purchaseState.primaryProduct;
-    if (product == null) {
-      return lang == 'es'
-          ? 'Producto Pro no disponible'
-          : 'Pro product is unavailable';
-    }
-    return lang == 'es'
-        ? 'Desbloquea videos largos y comandos personalizados por ${product.price}'
-        : 'Unlock long videos and custom cues for ${product.price}';
-  }
 
   void _buyPro(WidgetRef ref) {
     unawaited(ref.read(proPurchaseProvider.notifier).buyPro());
   }
 
-  void _restorePurchases(WidgetRef ref) {
-    unawaited(ref.read(proPurchaseProvider.notifier).restorePurchases());
-  }
-
   Future<void> _launchURL(String urlString) async {
-    final Uri url = Uri.parse(urlString);
+    final url = Uri.parse(urlString);
     try {
       await launchUrl(url, mode: LaunchMode.externalApplication);
     } catch (e) {
@@ -56,335 +33,108 @@ class SettingsScreen extends ConsumerWidget {
     }
   }
 
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final currentLang = ref.watch(languageProvider);
-    final isPro = ref.watch(isProProvider);
-    final proPurchase = ref.watch(proPurchaseProvider);
-    final user = ref.watch(userProfileProvider);
-    final config = ref.watch(drillConfigProvider);
-    final proProduct = proPurchase.primaryProduct;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(currentLang == 'es' ? 'Ajustes' : 'Settings'),
-      ),
-      body: ListView(
-        children: [
-          _SectionHeader(title: currentLang == 'es' ? 'Perfil' : 'Profile'),
-          _ProfileHeader(user: user),
-          const Divider(),
-          _SectionHeader(
-              title: currentLang == 'es' ? 'Preferencias' : 'Preferences'),
-          ListTile(
-            leading: const Icon(Icons.language),
-            title: Text(currentLang == 'es' ? 'Idioma' : 'Language'),
-            subtitle: Text(currentLang == 'es' ? 'Español' : 'English'),
-            trailing: Switch(
-              value: currentLang == 'es',
-              activeThumbColor: AppBrandColors.red,
-              onChanged: (val) {
-                ref.read(languageProvider.notifier).state = val ? 'es' : 'en';
-              },
-            ),
-          ),
-          SwitchListTile(
-            secondary: const Icon(Icons.record_voice_over),
-            title:
-                Text(currentLang == 'es' ? 'Agregar Ad libs' : 'Add Ad libs'),
-            subtitle: Text(currentLang == 'es'
-                ? 'Reproduce una frase extra en comandos largos'
-                : 'Play an extra cue during long callouts'),
-            value: config.adLibsEnabled,
-            onChanged: (v) =>
-                ref.read(drillConfigProvider.notifier).setAdLibsEnabled(v),
-          ),
-          if (config.adLibsEnabled)
-            _AdLibSlotsManager(
-              isPro: isPro,
-              onUpgradeTap: () => _buyPro(ref),
-            ),
-          const Divider(),
-          _SectionHeader(
-              title: currentLang == 'es'
-                  ? 'Comandos Personalizados'
-                  : 'Custom Callouts'),
-          if (isPro)
-            const _CustomCalloutsManager()
-          else
-            ListTile(
-              leading: const Icon(Icons.lock, color: AppBrandColors.gold),
-              title: const Text('Snap&Go Pro'),
-              subtitle: Text(currentLang == 'es'
-                  ? 'Suscríbete para agregar tus propios comandos'
-                  : 'Subscribe to add your own audio cues'),
-              trailing: FilledButton(
-                onPressed: proPurchase.canBuy ? () => _buyPro(ref) : null,
-                child: Text(
-                  proPurchase.purchasePending
-                      ? '...'
-                      : (proProduct?.price ?? 'GO PRO'),
-                ),
-              ),
-            ),
-          if (!isPro)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(72, 0, 16, 8),
-              child: Text(
-                _proSubtitle(currentLang, proPurchase),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-          if (!isPro)
-            ListTile(
-              leading: const Icon(Icons.restore),
-              title: Text(currentLang == 'es'
-                  ? 'Restaurar compras'
-                  : 'Restore Purchases'),
-              subtitle: Text(currentLang == 'es'
-                  ? 'Recupera Pro en este dispositivo'
-                  : 'Recover Pro on this device'),
-              trailing: proPurchase.restorePending
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.chevron_right),
-              onTap: proPurchase.restorePending
-                  ? null
-                  : () => _restorePurchases(ref),
-            ),
-          if (kDebugMode) ...[
-            const Divider(),
-            _SectionHeader(
-                title: currentLang == 'es' ? 'Suscripción' : 'Subscription'),
-            SwitchListTile(
-              title: const Text('Simulate Pro Mode'),
-              subtitle: const Text('Debug only: local entitlement override'),
-              secondary: Icon(Icons.stars,
-                  color: isPro ? AppBrandColors.gold : Colors.grey),
-              value: isPro,
-              onChanged: (val) {
-                ref.read(proPurchaseProvider.notifier).setDebugOverride(val);
-              },
-            ),
-          ],
-          const Divider(),
-          _SectionHeader(title: currentLang == 'es' ? 'Soporte' : 'Support'),
-          ListTile(
-            leading: const Icon(Icons.volunteer_activism, color: Colors.red),
-            title: const Text('Keep Kids Wrestling'),
-            trailing: const Icon(Icons.open_in_new, size: 16),
-            onTap: () => _launchURL("https://youtu.be/8rUsjXm799A"),
-          ),
-          ListTile(
-            leading: const Icon(Icons.privacy_tip_outlined),
-            title: Text(currentLang == 'es' ? 'Privacidad' : 'Privacy Policy'),
-            onTap: () => _launchURL("https://keepkidswrestling.com/privacy"),
-          ),
-          const SizedBox(height: 40),
-        ],
-      ),
-    );
-  }
-}
-
-class _AdLibSlotsManager extends ConsumerWidget {
-  final bool isPro;
-  final VoidCallback onUpgradeTap;
-  const _AdLibSlotsManager({
-    required this.isPro,
-    required this.onUpgradeTap,
-  });
-
-  void _showCustomizeSheet(BuildContext context, AdLibSlot slot) {
-    showModalBottomSheet(
+  Future<void> _confirmDeleteLocalData(
+    BuildContext context,
+    WidgetRef ref,
+    bool isEs,
+  ) async {
+    final confirmed = await showDialog<bool>(
       context: context,
-      isScrollControlled: true,
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: _AdLibRecordingSheet(slot: slot),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final config = ref.watch(drillConfigProvider);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-      child: Column(
-        children: [
-          for (final slot in AdLibSlots.all)
-            _AdLibSlotTile(
-              slot: slot,
-              available: slot.isUnlocked(isPro: isPro),
-              customizable: slot.canCustomize(isPro: isPro),
-              hasCustomAudio: slot.canCustomize(isPro: isPro) &&
-                  config.customAdLibAudioPaths.containsKey(slot.id),
-              onTap: () {
-                if (!slot.isUnlocked(isPro: isPro)) {
-                  onUpgradeTap();
-                  return;
-                }
-                if (!slot.canCustomize(isPro: isPro)) {
-                  onUpgradeTap();
-                  return;
-                }
-                _showCustomizeSheet(context, slot);
-              },
+      builder: (ctx) => AlertDialog(
+        title: Text(isEs ? 'Borrar datos locales' : 'Delete local data'),
+        content: Text(
+          isEs
+              ? 'Esto borra perfil, progreso, grabaciones, comandos y ajustes guardados en este dispositivo.'
+              : 'This removes the profile, progress, review videos, callouts, and saved settings on this device.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(isEs ? 'Cancelar' : 'Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppBrandColors.red,
+              foregroundColor: Colors.white,
             ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(isEs ? 'Borrar' : 'Delete'),
+          ),
         ],
       ),
     );
-  }
-}
 
-class _AdLibSlotTile extends ConsumerWidget {
-  final AdLibSlot slot;
-  final bool available;
-  final bool customizable;
-  final bool hasCustomAudio;
-  final VoidCallback onTap;
-
-  const _AdLibSlotTile({
-    required this.slot,
-    required this.available,
-    required this.customizable,
-    required this.hasCustomAudio,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final lang = ref.watch(languageProvider);
-    final scheme = Theme.of(context).colorScheme;
-
-    return Card(
-      elevation: available ? 1 : 0,
-      color: available ? scheme.surface : scheme.surfaceContainerHighest,
-      child: ListTile(
-        enabled: available,
-        leading: Icon(
-          available
-              ? (hasCustomAudio ? Icons.mic : Icons.graphic_eq)
-              : Icons.lock,
-          color: available
-              ? (hasCustomAudio ? AppBrandColors.blue : scheme.primary)
-              : AppBrandColors.gold,
-        ),
-        title: Text(slot.label),
-        subtitle: Text(
-          !available
-              ? (lang == 'es' ? 'Bloqueado para Pro' : 'Locked for Pro')
-              : !customizable
-                  ? (lang == 'es'
-                      ? 'Audio predeterminado - Pro para personalizar'
-                      : 'Default audio - Pro to customize')
-                  : hasCustomAudio
-                      ? (lang == 'es' ? 'Audio personalizado' : 'Custom audio')
-                      : (lang == 'es'
-                          ? 'Audio predeterminado'
-                          : 'Default audio'),
-        ),
-        trailing: Icon(
-          customizable ? Icons.chevron_right : Icons.lock_outline,
-          color: customizable ? null : AppBrandColors.gold,
-        ),
-        onTap: onTap,
-      ),
-    );
-  }
-}
-
-class _AdLibRecordingSheet extends ConsumerStatefulWidget {
-  final AdLibSlot slot;
-
-  const _AdLibRecordingSheet({required this.slot});
-
-  @override
-  ConsumerState<_AdLibRecordingSheet> createState() =>
-      _AdLibRecordingSheetState();
-}
-
-class _AdLibRecordingSheetState extends ConsumerState<_AdLibRecordingSheet> {
-  final _recorder = AudioRecorder();
-  final _player = AudioPlayer();
-  bool _isRecording = false;
-  String? _recordedPath;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_player.setPlayerMode(PlayerMode.mediaPlayer));
-    unawaited(_player.setReleaseMode(ReleaseMode.stop));
-  }
-
-  @override
-  void dispose() {
-    _recorder.dispose();
-    _player.dispose();
-    super.dispose();
-  }
-
-  Future<void> _startRecording() async {
-    if (!await _recorder.hasPermission()) return;
-
-    await _player.stop();
-    final dir = await getApplicationDocumentsDirectory();
-    final path =
-        '${dir.path}/${widget.slot.id}_${DateTime.now().millisecondsSinceEpoch}.m4a';
-
-    await _recorder.start(
-      const RecordConfig(encoder: AudioEncoder.aacLc),
-      path: path,
-    );
-
-    if (mounted) {
-      setState(() => _isRecording = true);
+    if (confirmed == true && context.mounted) {
+      await _deleteLocalData(context, ref, isEs);
     }
   }
 
-  Future<void> _stopRecording() async {
-    final path = await _recorder.stop();
-    if (!mounted) return;
+  Future<void> _deleteLocalData(
+    BuildContext context,
+    WidgetRef ref,
+    bool isEs,
+  ) async {
+    final config = ref.read(drillConfigProvider);
+    final recordings =
+        await ref.read(savedRecordingsProvider.future).catchError(
+              (_) => const <SavedWorkoutVideo>[],
+            );
+    final localPaths = <String>{
+      ...config.customAudioPaths.values,
+      ...config.customAdLibAudioPaths.values,
+      ...recordings.map((video) => video.path),
+    };
 
-    setState(() {
-      _isRecording = false;
-      _recordedPath = path;
-    });
-
-    if (path != null) {
-      ref
-          .read(drillConfigProvider.notifier)
-          .updateAdLibAudio(widget.slot.id, path);
+    for (final path in localPaths) {
+      await _deleteFileIfLocal(path);
     }
-  }
 
-  Future<void> _playPreview(String path) async {
     try {
-      await _player.stop();
-      if (path.startsWith('assets/')) {
-        await _player.play(AssetSource(path.replaceFirst('assets/', '')));
-      } else {
-        await _player.play(DeviceFileSource(path));
+      final docs = await getApplicationDocumentsDirectory();
+      final recordingsDir = Directory(
+        '${docs.path}${Platform.pathSeparator}recordings',
+      );
+      if (await recordingsDir.exists()) {
+        await recordingsDir.delete(recursive: true);
       }
     } catch (e) {
-      debugPrint('Could not play ad lib preview: $e');
+      debugPrint('Could not delete recordings directory: $e');
     }
+
+    final prefs = await ref.read(sharedPrefsProvider.future);
+    await ref
+        .read(workoutReminderNotificationsProvider)
+        .cancelWorkoutReminders();
+    await prefs.clear();
+    await ref.read(languageProvider.notifier).setLanguage('en');
+
+    ref.invalidate(sharedPrefsProvider);
+    ref.invalidate(calloutButtonStyleProvider);
+    ref.invalidate(drillConfigProvider);
+    ref.invalidate(userProfileProvider);
+    ref.invalidate(calloutsProvider);
+    ref.invalidate(trainingProgressProvider);
+    ref.invalidate(badgeProgressProvider);
+    ref.invalidate(savedRecordingsProvider);
+    ref.invalidate(proPurchaseProvider);
+    ref.invalidate(onboardingProvider);
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          isEs ? 'Datos locales borrados' : 'Local data deleted',
+        ),
+      ),
+    );
   }
 
-  Future<void> _deleteCustomAudio(String path) async {
-    await _player.stop();
-    ref.read(drillConfigProvider.notifier).removeAdLibAudio(widget.slot.id);
-
-    if (mounted) {
-      setState(() {
-        _isRecording = false;
-        _recordedPath = null;
-      });
+  Future<void> _deleteFileIfLocal(String path) async {
+    if (path.isEmpty ||
+        path.startsWith('assets/') ||
+        path.startsWith('http://') ||
+        path.startsWith('https://')) {
+      return;
     }
 
     try {
@@ -393,269 +143,381 @@ class _AdLibRecordingSheetState extends ConsumerState<_AdLibRecordingSheet> {
         await file.delete();
       }
     } catch (e) {
-      debugPrint('Could not delete ad lib audio: $e');
+      debugPrint('Could not delete local file: $e');
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final lang = ref.watch(languageProvider);
-    final config = ref.watch(drillConfigProvider);
-    final customPath =
-        _recordedPath ?? config.customAdLibAudioPaths[widget.slot.id];
-    final activePath = customPath ?? widget.slot.defaultAssetPath;
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey[300],
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            _isRecording
-                ? (lang == 'es' ? 'Grabando...' : 'Recording...')
-                : (lang == 'es'
-                    ? 'Personalizar ${widget.slot.label}'
-                    : 'Customize ${widget.slot.label}'),
-            style: Theme.of(context).textTheme.headlineSmall,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 32),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              Column(
-                children: [
-                  GestureDetector(
-                    onTap: _isRecording ? _stopRecording : _startRecording,
-                    child: CircleAvatar(
-                      radius: 36,
-                      backgroundColor:
-                          _isRecording ? Colors.red : Colors.redAccent,
-                      child: Icon(
-                        _isRecording ? Icons.stop : Icons.mic,
-                        color: Colors.white,
-                        size: 32,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(_isRecording ? 'STOP' : 'REC'),
-                ],
-              ),
-              if (!_isRecording)
-                Column(
-                  children: [
-                    GestureDetector(
-                      onTap: () => _playPreview(activePath),
-                      child: const CircleAvatar(
-                        radius: 36,
-                        backgroundColor: AppBrandColors.blue,
-                        child: Icon(
-                          Icons.play_arrow,
-                          color: Colors.white,
-                          size: 32,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text('PLAY'),
-                  ],
-                ),
-              if (customPath != null && !_isRecording)
-                Column(
-                  children: [
-                    GestureDetector(
-                      onTap: () => _deleteCustomAudio(customPath),
-                      child: const CircleAvatar(
-                        radius: 36,
-                        backgroundColor: AppBrandColors.goldDark,
-                        child: Icon(
-                          Icons.delete_outline,
-                          color: Colors.white,
-                          size: 32,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(lang == 'es' ? 'BORRAR' : 'DELETE'),
-                  ],
-                ),
-            ],
-          ),
-          const SizedBox(height: 32),
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(lang == 'es' ? 'Listo' : 'Done'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProfileHeader extends ConsumerWidget {
-  final UserProfile user;
-  const _ProfileHeader({required this.user});
-
-  Future<void> _pickImage(WidgetRef ref) async {
-    final picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
-    if (image != null) {
-      ref.read(userProfileProvider.notifier).updateProfileImage(image.path);
+  Future<void> _setWorkoutReminders(
+    BuildContext context,
+    WidgetRef ref,
+    bool enabled,
+    bool isEs,
+  ) async {
+    if (!enabled) {
+      await ref
+          .read(onboardingProvider.notifier)
+          .setWorkoutRemindersEnabled(false);
+      await ref
+          .read(workoutReminderNotificationsProvider)
+          .cancelWorkoutReminders();
+      return;
     }
-  }
 
-  void _editField(BuildContext context, WidgetRef ref, String label,
-      String currentVal, Function(String) onSave,
-      {bool isNumber = false}) {
-    final controller = TextEditingController(text: currentVal);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Edit $label'),
-        content: TextField(
-          controller: controller,
-          keyboardType: isNumber ? TextInputType.number : TextInputType.text,
-          autofocus: true,
+    final granted = await const NotificationPermissionPrompter()
+        .requestWorkoutReminderPermission();
+    final profile = await ref
+        .read(onboardingProvider.notifier)
+        .setWorkoutRemindersEnabled(granted);
+    final lastWorkoutCompletedAt = profile.lastWorkoutCompletedAt;
+    if (granted && lastWorkoutCompletedAt != null) {
+      await ref
+          .read(workoutReminderNotificationsProvider)
+          .scheduleAfterWorkoutCompletion(
+            profile: profile,
+            completedAt: lastWorkoutCompletedAt,
+          );
+    }
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          granted
+              ? (isEs
+                  ? 'Recordatorios activados'
+                  : 'Workout reminders turned on')
+              : (isEs
+                  ? 'Permiso de notificaciones desactivado'
+                  : 'Notification permission is off'),
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () {
-              onSave(controller.text);
-              Navigator.pop(ctx);
-            },
-            child: const Text('Save'),
-          ),
-        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final lang = ref.watch(languageProvider);
-    final isEs = lang == 'es';
+    final currentLang = ref.watch(languageProvider);
+    final isEs = currentLang == 'es';
+    final isPro = ref.watch(isProProvider);
+    final proState = ref.watch(proPurchaseProvider);
+    final config = ref.watch(drillConfigProvider);
+    final calloutButtonStyle = ref.watch(calloutButtonStyleProvider);
+    final onboarding = ref.watch(onboardingProvider);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Column(
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(isEs ? 'Configuracion' : 'Setup'),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
-          Center(
-            child: Stack(
+          _SettingsGroup(
+            title: isEs ? 'Perfil personal' : 'Personal setup',
+            child: const SettingsProfileHeader(),
+          ),
+          _SettingsGroup(
+            title: isEs ? 'Idioma' : 'Language',
+            child: _LanguagePicker(
+              currentLang: currentLang,
+              onChanged: (languageCode) => unawaited(
+                ref.read(languageProvider.notifier).setLanguage(languageCode),
+              ),
+            ),
+          ),
+          _SettingsGroup(
+            title: isEs ? 'Apariencia' : 'Look',
+            child: _LookSelector(
+              isEs: isEs,
+              style: calloutButtonStyle,
+              onChanged: (style) => unawaited(
+                ref.read(calloutButtonStyleProvider.notifier).setStyle(style),
+              ),
+            ),
+          ),
+          _SettingsGroup(
+            title: isEs ? 'Recordatorios' : 'Reminders',
+            child: SwitchListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+              secondary: const Icon(Icons.notifications_active_outlined),
+              title: Text(
+                isEs ? 'Recordatorios de workout' : 'Workout reminders',
+              ),
+              subtitle: Text(
+                isEs
+                    ? 'Muestra el permiso de notificaciones para recordatorios'
+                    : 'Shows the notification permission popup for reminders',
+              ),
+              value: onboarding.workoutRemindersEnabled,
+              onChanged: onboarding.loaded
+                  ? (enabled) => unawaited(
+                        _setWorkoutReminders(context, ref, enabled, isEs),
+                      )
+                  : null,
+            ),
+          ),
+          _SettingsGroup(
+            title: isEs ? 'Audio' : 'Audio',
+            child: Column(
               children: [
-                CircleAvatar(
-                  radius: 50,
-                  backgroundColor: Colors.grey[300],
-                  backgroundImage: user.profileImageUrl != null
-                      ? FileImage(File(user.profileImageUrl!))
-                      : null,
-                  child: user.profileImageUrl == null
-                      ? const Icon(Icons.person, size: 50, color: Colors.white)
-                      : null,
+                SwitchListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  secondary: const Icon(Icons.record_voice_over),
+                  title: Text(isEs ? 'Ad libs' : 'Ad libs'),
+                  subtitle: Text(
+                    isEs
+                        ? 'Frases extra durante comandos largos'
+                        : 'Extra cues during long callouts',
+                  ),
+                  value: config.adLibsEnabled,
+                  onChanged: (enabled) {
+                    ref
+                        .read(drillConfigProvider.notifier)
+                        .setAdLibsEnabled(enabled);
+                  },
                 ),
-                Positioned(
-                  bottom: 0,
-                  right: 0,
-                  child: GestureDetector(
-                    onTap: () => _pickImage(ref),
-                    child: const CircleAvatar(
-                      radius: 16,
-                      backgroundColor: AppBrandColors.blue,
-                      child:
-                          Icon(Icons.camera_alt, size: 16, color: Colors.white),
-                    ),
+                if (config.adLibsEnabled)
+                  SettingsAdLibSlotsManager(
+                    isPro: isPro,
+                    onUpgradeTap: () => _buyPro(ref),
+                  ),
+                const Divider(height: 1),
+                ExpansionTile(
+                  tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+                  leading: const Icon(Icons.mic_external_on_outlined),
+                  title: Text(
+                    isEs ? 'Comandos personalizados' : 'Custom callouts',
+                  ),
+                  childrenPadding: const EdgeInsets.only(bottom: 8),
+                  children: [
+                    if (isPro)
+                      const SettingsCustomCalloutsManager()
+                    else
+                      SettingsProCalloutGate(currentLang: currentLang),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          _SettingsGroup(
+            title: isEs ? 'Coach Mode' : 'Coach Mode',
+            child: _SubscriptionStatus(
+              currentLang: currentLang,
+              purchaseState: proState,
+              onBuyTap: () => _buyPro(ref),
+              onRestoreTap: () => unawaited(
+                ref.read(proPurchaseProvider.notifier).restorePurchases(),
+              ),
+              onDebugChanged: kDebugMode
+                  ? (isProValue) => unawaited(
+                        ref
+                            .read(proPurchaseProvider.notifier)
+                            .setDebugOverride(isProValue),
+                      )
+                  : null,
+            ),
+          ),
+          _SettingsGroup(
+            title: isEs ? 'Privacidad y datos' : 'Privacy and data',
+            child: Column(
+              children: [
+                SwitchListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  secondary: const Icon(Icons.videocam_outlined),
+                  title: Text(
+                    isEs ? 'Guardar videos de review' : 'Save review videos',
+                  ),
+                  subtitle: Text(
+                    isEs
+                        ? 'Controla si los drills pueden guardar grabaciones'
+                        : 'Controls whether drills can save review videos',
+                  ),
+                  value: config.videoEnabled,
+                  onChanged: (enabled) {
+                    ref
+                        .read(drillConfigProvider.notifier)
+                        .setVideoEnabled(enabled);
+                  },
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.privacy_tip_outlined),
+                  title:
+                      Text(isEs ? 'Politica de privacidad' : 'Privacy Policy'),
+                  trailing: const Icon(Icons.open_in_new, size: 18),
+                  onTap: () => unawaited(
+                    _launchURL('https://keepkidswrestling.com/privacy'),
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(
+                    Icons.delete_forever_outlined,
+                    color: AppBrandColors.red,
+                  ),
+                  title:
+                      Text(isEs ? 'Borrar datos locales' : 'Delete local data'),
+                  subtitle: Text(
+                    isEs
+                        ? 'Perfil, progreso, audios y grabaciones'
+                        : 'Profile, progress, audio, and review videos',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => unawaited(
+                    _confirmDeleteLocalData(context, ref, isEs),
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: _ProfileStatTile(
-                  label: isEs ? 'Peso (lbs)' : 'Weight',
-                  value: user.weightLbs.toStringAsFixed(0),
-                  onTap: () => _editField(
-                      context, ref, 'Weight', user.weightLbs.toString(), (val) {
-                    final d = double.tryParse(val);
-                    if (d != null) {
-                      ref.read(userProfileProvider.notifier).updateWeight(d);
-                    }
-                  }, isNumber: true),
-                ),
-              ),
-              Expanded(
-                child: _ProfileStatTile(
-                  label: isEs ? 'Edad' : 'Age',
-                  value: user.age.toString(),
-                  onTap: () => _editField(
-                      context, ref, 'Age', user.age.toString(), (val) {
-                    final i = int.tryParse(val);
-                    if (i != null) {
-                      ref.read(userProfileProvider.notifier).updateAge(i);
-                    }
-                  }, isNumber: true),
-                ),
-              ),
-              Expanded(
-                child: _ProfileStatTile(
-                  label: isEs ? 'Equipo' : 'Team',
-                  value: user.teamName ?? '-',
-                  onTap: () => _editField(
-                      context, ref, 'Team', user.teamName ?? '', (val) {
-                    ref.read(userProfileProvider.notifier).updateTeam(val);
-                  }),
-                ),
-              ),
-            ],
-          ),
         ],
       ),
     );
   }
 }
 
-class _ProfileStatTile extends StatelessWidget {
-  final String label;
-  final String value;
-  final VoidCallback onTap;
+class _SettingsGroup extends StatelessWidget {
+  final String title;
+  final Widget child;
 
-  const _ProfileStatTile(
-      {required this.label, required this.value, required this.onTap});
+  const _SettingsGroup({
+    required this.title,
+    required this.child,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Card(
-        elevation: 0,
-        color: Theme.of(context)
-            .colorScheme
-            .surfaceContainerHighest
-            .withValues(alpha: 0.3),
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
+    final scheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+            child: Text(
+              title.toUpperCase(),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: scheme.primary,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.1,
+                  ),
+            ),
+          ),
+          Material(
+            color: scheme.surface,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+              side: BorderSide(
+                color: scheme.outlineVariant.withValues(alpha: 0.6),
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: child,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LanguagePicker extends StatelessWidget {
+  static const _englishFlag = 'assets/images/language/american_flag_icon.png';
+  static const _spanishFlag = 'assets/images/language/mexican_flag_icon.png';
+
+  final String currentLang;
+  final ValueChanged<String> onChanged;
+
+  const _LanguagePicker({
+    required this.currentLang,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          Expanded(
+            child: _FlagChoice(
+              asset: _englishFlag,
+              label: 'English',
+              selected: currentLang == 'en',
+              onTap: () => onChanged('en'),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _FlagChoice(
+              asset: _spanishFlag,
+              label: 'Espanol',
+              selected: currentLang == 'es',
+              onTap: () => onChanged('es'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FlagChoice extends StatelessWidget {
+  final String asset;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _FlagChoice({
+    required this.asset,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected ? AppBrandColors.red : scheme.outlineVariant,
+              width: selected ? 2 : 1,
+            ),
+            color: selected
+                ? AppBrandColors.red.withValues(alpha: 0.08)
+                : scheme.surface,
+          ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Text(label,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-              const SizedBox(height: 4),
-              Text(value,
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold)),
+              Image.asset(
+                asset,
+                width: 56,
+                height: 56,
+                fit: BoxFit.contain,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                    ),
+              ),
             ],
           ),
         ),
@@ -664,281 +526,146 @@ class _ProfileStatTile extends StatelessWidget {
   }
 }
 
-class _CustomCalloutsManager extends ConsumerWidget {
-  const _CustomCalloutsManager();
+class _LookSelector extends StatelessWidget {
+  final bool isEs;
+  final CalloutButtonStyle style;
+  final ValueChanged<CalloutButtonStyle> onChanged;
 
-  void _showAddDialog(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: const _AddCalloutSheet(),
-      ),
-    );
-  }
+  const _LookSelector({
+    required this.isEs,
+    required this.style,
+    required this.onChanged,
+  });
 
-  // BUG FIX: Added Rename Dialog for existing custom callouts
-  void _showRenameDialog(BuildContext context, WidgetRef ref, Callout c) {
-    final ctrl = TextEditingController(text: c.nameEn);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Rename Callout'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'New Name'),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () {
-              if (ctrl.text.isNotEmpty) {
-                ref
-                    .read(calloutsProvider.notifier)
-                    .updateCalloutName(c.id, ctrl.text);
-              }
-              Navigator.pop(ctx);
-            },
-            child: const Text('Save'),
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            isEs ? 'Estilo de botones' : 'Button style',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 12),
+          SegmentedButton<CalloutButtonStyle>(
+            segments: [
+              ButtonSegment(
+                value: CalloutButtonStyle.classic,
+                icon: const Icon(Icons.toggle_on_outlined),
+                label: Text(isEs ? 'Clasico' : 'Classic'),
+              ),
+              ButtonSegment(
+                value: CalloutButtonStyle.modern,
+                icon: const Icon(Icons.image_outlined),
+                label: Text(isEs ? 'Moderno' : 'Modern'),
+              ),
+            ],
+            selected: {style},
+            onSelectionChanged: (selection) => onChanged(selection.first),
           ),
         ],
       ),
     );
   }
+}
+
+class _SubscriptionStatus extends StatelessWidget {
+  final String currentLang;
+  final ProPurchaseState purchaseState;
+  final VoidCallback onBuyTap;
+  final VoidCallback onRestoreTap;
+  final ValueChanged<bool>? onDebugChanged;
+
+  const _SubscriptionStatus({
+    required this.currentLang,
+    required this.purchaseState,
+    required this.onBuyTap,
+    required this.onRestoreTap,
+    required this.onDebugChanged,
+  });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final calloutsAsync = ref.watch(calloutsProvider);
-    final lang = ref.watch(languageProvider);
+  Widget build(BuildContext context) {
+    final isEs = currentLang == 'es';
+    final product = purchaseState.primaryProduct;
+    final isPro = purchaseState.isPro;
 
     return Column(
       children: [
         ListTile(
-          leading: const Icon(Icons.add_circle, color: AppBrandColors.blue),
-          title:
-              Text(lang == 'es' ? 'Agregar Nuevo Comando' : 'Add New Callout'),
-          onTap: () => _showAddDialog(context),
-        ),
-        calloutsAsync.when(
-          data: (list) {
-            final customs = list.where((c) => c.isCustom).toList();
-            if (customs.isEmpty) return const SizedBox.shrink();
-
-            return ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: customs.length,
-              itemBuilder: (context, index) {
-                final c = customs[index];
-                return ListTile(
-                  leading: const Icon(Icons.mic, color: Colors.grey),
-                  title: Text(c.name),
-                  // Appended Edit capability along with delete
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon:
-                            const Icon(Icons.edit, color: AppBrandColors.blue),
-                        onPressed: () => _showRenameDialog(context, ref, c),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete, color: Colors.red),
-                        onPressed: () {
-                          ref
-                              .read(calloutsProvider.notifier)
-                              .deleteCallout(c.id);
-                        },
-                      ),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, st) => Text('Error: $e'),
-        ),
-      ],
-    );
-  }
-}
-
-class _AddCalloutSheet extends ConsumerStatefulWidget {
-  const _AddCalloutSheet();
-
-  @override
-  ConsumerState<_AddCalloutSheet> createState() => _AddCalloutSheetState();
-}
-
-class _AddCalloutSheetState extends ConsumerState<_AddCalloutSheet> {
-  final TextEditingController _nameController = TextEditingController();
-  final AudioRecorder _recorder = AudioRecorder();
-  final AudioPlayer _player = AudioPlayer();
-
-  bool _isRecording = false;
-  String? _tempPath;
-  int _selectedDuration = 0;
-
-  @override
-  void dispose() {
-    _recorder.dispose();
-    _player.dispose();
-    _nameController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _toggleRecording() async {
-    if (_isRecording) {
-      final path = await _recorder.stop();
-      setState(() {
-        _isRecording = false;
-        _tempPath = path;
-      });
-    } else {
-      if (await _recorder.hasPermission()) {
-        final dir = await getApplicationDocumentsDirectory();
-        final path =
-            '${dir.path}/temp_${DateTime.now().millisecondsSinceEpoch}.m4a';
-
-        await _recorder.start(const RecordConfig(), path: path);
-        setState(() => _isRecording = true);
-      }
-    }
-  }
-
-  Future<void> _save(WidgetRef ref) async {
-    if (_nameController.text.isEmpty || _tempPath == null) return;
-    final audioPath = _tempPath!;
-
-    final newCallout = Callout(
-      id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
-      nameEn: _nameController.text,
-      nameEs: _nameController.text,
-      type: _selectedDuration > 0
-          ? 'Duration'
-          : 'Movement', // Set type based on whether duration was specified
-      defaultDurationSeconds: _selectedDuration, // Store duration if set
-      audioUrl: audioPath,
-      isCustom: true,
-    );
-
-    await ref.read(calloutsProvider.notifier).addCustomCallout(newCallout);
-    ref.read(drillConfigProvider.notifier).updateCalloutAudio(
-          newCallout.id,
-          audioPath,
-        );
-    if (!mounted) return;
-    Navigator.pop(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final lang = ref.watch(languageProvider);
-    final isEs = lang == 'es';
-
-    return Padding(
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            isEs ? 'Nuevo Comando' : 'New Callout',
-            style: Theme.of(context).textTheme.headlineSmall,
-            textAlign: TextAlign.center,
+          leading: Icon(
+            isPro ? Icons.verified_outlined : Icons.workspace_premium_outlined,
+            color: isPro ? AppBrandColors.gold : AppBrandColors.red,
           ),
-          const SizedBox(height: 20),
-          TextField(
-            controller: _nameController,
-            decoration: InputDecoration(
-              labelText: isEs ? 'Nombre del comando' : 'Callout Name',
-              border: const OutlineInputBorder(),
-            ),
+          title: Text(
+            isPro
+                ? 'Snap & Go Coach Mode'
+                : (isEs ? 'Plan gratis' : 'Free plan'),
           ),
-          const SizedBox(height: 20),
-          Text(isEs ? 'Tipo de Comando' : 'Callout Type',
-              style: const TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SegmentedButton<int>(
-              segments: const [
-                ButtonSegment(value: 0, label: Text('Action')),
-                ButtonSegment(value: 15, label: Text('15s')),
-                ButtonSegment(value: 30, label: Text('30s')),
-                ButtonSegment(value: 45, label: Text('45s')),
-                ButtonSegment(value: 60, label: Text('60s')),
-              ],
-              selected: {_selectedDuration},
-              onSelectionChanged: (newSelection) =>
-                  setState(() => _selectedDuration = newSelection.first),
-            ),
+          subtitle: Text(
+            isPro
+                ? (isEs ? 'Activo' : 'Active')
+                : product == null
+                    ? (isEs
+                        ? 'Coach Mode no disponible'
+                        : 'Coach Mode unavailable')
+                    : (isEs
+                        ? 'Videos largos, voz de coach y ad libs - ${product.price}'
+                        : 'Long videos, coach voice, and ad libs - ${product.price}'),
           ),
-          const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              GestureDetector(
-                onTap: _toggleRecording,
-                child: CircleAvatar(
-                  radius: 30,
-                  backgroundColor: _isRecording ? Colors.red : Colors.grey[200],
-                  child: Icon(
-                    _isRecording ? Icons.stop : Icons.mic,
-                    color: _isRecording ? Colors.white : Colors.black,
-                    size: 30,
+          trailing: isPro
+              ? const Icon(Icons.check_circle, color: AppBrandColors.gold)
+              : FilledButton(
+                  onPressed: purchaseState.canBuy ? onBuyTap : null,
+                  child: Text(
+                    purchaseState.purchasePending
+                        ? '...'
+                        : (isEs ? 'Coach Mode' : 'Coach Mode'),
                   ),
                 ),
-              ),
-              if (_tempPath != null && !_isRecording) ...[
-                const SizedBox(width: 20),
-                IconButton(
-                  icon: const Icon(Icons.play_arrow,
-                      size: 40, color: AppBrandColors.blue),
-                  onPressed: () => _player.play(DeviceFileSource(_tempPath!)),
-                ),
-              ]
-            ],
+        ),
+        if (purchaseState.loading)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: LinearProgressIndicator(),
           ),
-          const SizedBox(height: 10),
-          Center(
-              child: Text(_isRecording
-                  ? "Recording..."
-                  : (_tempPath != null ? "Audio Recorded" : "Tap to Record"))),
-          const SizedBox(height: 30),
-          FilledButton(
-            onPressed: (_tempPath != null && _nameController.text.isNotEmpty)
-                ? () => _save(ref)
-                : null,
-            child: Text(isEs ? 'Guardar' : 'Save Callout'),
+        if (purchaseState.errorMessage != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Text(
+              purchaseState.errorMessage!,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+        const Divider(height: 1),
+        ListTile(
+          leading: const Icon(Icons.restore_outlined),
+          title: Text(isEs ? 'Restaurar compras' : 'Restore purchases'),
+          trailing: purchaseState.restorePending
+              ? const SizedBox.square(
+                  dimension: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.chevron_right),
+          onTap: purchaseState.restorePending ? null : onRestoreTap,
+        ),
+        if (onDebugChanged != null) ...[
+          const Divider(height: 1),
+          SwitchListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            secondary: const Icon(Icons.bug_report_outlined),
+            title: const Text('Simulate Coach Mode'),
+            subtitle: const Text('Debug only'),
+            value: isPro,
+            onChanged: onDebugChanged,
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  const _SectionHeader({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-      child: Text(
-        title.toUpperCase(),
-        style: TextStyle(
-          fontSize: 12,
-          letterSpacing: 1.2,
-          color: Theme.of(context).colorScheme.primary,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
+      ],
     );
   }
 }

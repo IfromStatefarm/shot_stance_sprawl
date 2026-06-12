@@ -1,11 +1,17 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/material.dart' hide Badge;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gal/gal.dart';
 import 'package:path_provider/path_provider.dart';
-import 'dart:io';
 
 import 'app_theme.dart';
+import 'features/badges/badge_models.dart';
+import 'features/badges/presentation/badge_widgets.dart';
+import 'features/drill/presentation/drill_runner_screen.dart';
 import 'features/drill/providers.dart';
+import 'features/recordings/saved_recordings_provider.dart';
 
 class DrillSummaryScreen extends ConsumerStatefulWidget {
   final Duration totalTime;
@@ -25,10 +31,11 @@ class DrillSummaryScreen extends ConsumerStatefulWidget {
 
 class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
     with SingleTickerProviderStateMixin {
-  static const _galleryAlbumName = 'Snap & Shot Shadow Trainer';
+  static const _galleryAlbumName = 'Snap & Go Review';
 
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
+  var _localRecordingSaveQueued = false;
 
   @override
   void initState() {
@@ -62,6 +69,7 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
     String? path,
     String lang,
     UserProfile user,
+    bool isPro,
   ) async {
     if (path == null || path.isEmpty || !File(path).existsSync()) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -74,8 +82,17 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
 
     File? namedVideo;
     try {
-      namedVideo = await _copyVideoWithGalleryName(path, user);
+      namedVideo = await _copyVideoWithGalleryName(
+        path,
+        user,
+        widget.calloutsCompleted,
+      );
       await Gal.putVideo(namedVideo.path, album: _galleryAlbumName);
+      if (isPro) {
+        await ref
+            .read(badgeProgressProvider.notifier)
+            .recordPremiumRecordingSaved();
+      }
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -108,7 +125,10 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
   }
 
   Future<File> _copyVideoWithGalleryName(
-      String sourcePath, UserProfile user) async {
+    String sourcePath,
+    UserProfile user,
+    int calloutsCompleted,
+  ) async {
     final tempDir = await getTemporaryDirectory();
     final exportDir = Directory(
       '${tempDir.path}${Platform.pathSeparator}gallery_exports',
@@ -117,7 +137,11 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
       await exportDir.create(recursive: true);
     }
 
-    final fileName = _galleryVideoFileName(user, DateTime.now());
+    final fileName = _galleryVideoFileName(
+      user,
+      calloutsCompleted,
+      DateTime.now(),
+    );
     final destination = File(
       '${exportDir.path}${Platform.pathSeparator}$fileName',
     );
@@ -128,25 +152,17 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
     return File(sourcePath).copy(destination.path);
   }
 
-  String _galleryVideoFileName(UserProfile user, DateTime savedAt) {
-    final profileName = _safeFileComponent(user.teamName ?? 'Wrestler');
-    final timestamp =
-        '${savedAt.year}-${_twoDigits(savedAt.month)}-${_twoDigits(savedAt.day)}_'
-        '${_twoDigits(savedAt.hour)}-${_twoDigits(savedAt.minute)}-${_twoDigits(savedAt.second)}';
-
-    return '${profileName}_$timestamp.mp4';
+  String _galleryVideoFileName(
+    UserProfile user,
+    int calloutsCompleted,
+    DateTime savedAt,
+  ) {
+    return SavedWorkoutVideoFileNames.fileName(
+      userName: user.teamName,
+      calloutsCompleted: calloutsCompleted,
+      savedAt: savedAt,
+    );
   }
-
-  String _safeFileComponent(String value) {
-    final sanitized = value
-        .trim()
-        .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]+'), ' ')
-        .replaceAll(RegExp(r'\s+'), '_');
-
-    return sanitized.isEmpty ? 'Wrestler' : sanitized;
-  }
-
-  String _twoDigits(int value) => value.toString().padLeft(2, '0');
 
   @override
   Widget build(BuildContext context) {
@@ -154,6 +170,7 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
     final config = ref.watch(drillConfigProvider);
     final lang = ref.watch(languageProvider);
     final isPro = ref.watch(isProProvider);
+    final nextChases = ref.watch(homeBadgeChasesProvider);
 
     final burned = _calculateCalories(
       weightLbs: user.weightLbs,
@@ -162,6 +179,9 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
     );
 
     final effectiveVideoPath = widget.videoPath;
+    if (effectiveVideoPath != null && File(effectiveVideoPath).existsSync()) {
+      _queueLocalRecordingSave(effectiveVideoPath);
+    }
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -178,6 +198,19 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
                   child: Column(
                     children: [
                       _buildStatsRow(lang),
+                      const SizedBox(height: 18),
+
+                      WorkoutBadgeSummary(isEs: lang == 'es'),
+
+                      if (nextChases.isNotEmpty) ...[
+                        const SizedBox(height: 18),
+                        _NextChaseCard(
+                          badge: nextChases.first,
+                          calloutsCompleted: widget.calloutsCompleted,
+                          lang: lang,
+                        ),
+                      ],
+
                       const SizedBox(height: 30),
 
                       _buildCaloriesCard(burned, lang),
@@ -187,7 +220,13 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
                       // FIX: Safe state protection if branding failed or was locked
                       if (effectiveVideoPath != null &&
                           File(effectiveVideoPath).existsSync())
-                        _buildVideoCard(context, effectiveVideoPath, lang, user)
+                        _buildVideoCard(
+                          context,
+                          effectiveVideoPath,
+                          lang,
+                          user,
+                          isPro,
+                        )
                       else if (!isPro && config.videoEnabled)
                         _buildFailedBrandingCard(lang)
                     ],
@@ -222,7 +261,7 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
               const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
         ),
         Text(
-          lang == 'es' ? '¡DRILL COMPLETADO!' : 'DRILL COMPLETE!',
+          lang == 'es' ? 'DRILL COMPLETADO!' : 'DRILL COMPLETE!',
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                 fontWeight: FontWeight.w900,
                 color: Theme.of(context).primaryColor,
@@ -230,6 +269,22 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
         ),
       ],
     );
+  }
+
+  void _queueLocalRecordingSave(String path) {
+    if (_localRecordingSaveQueued) return;
+    _localRecordingSaveQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(
+        ref.read(savedRecordingsProvider.notifier).saveWorkoutVideo(
+              sourcePath: path,
+              duration: widget.totalTime,
+              calloutsCompleted: widget.calloutsCompleted,
+              userName: ref.read(userProfileProvider).teamName,
+            ),
+      );
+    });
   }
 
   Widget _buildStatsRow(String lang) {
@@ -279,7 +334,7 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
                   color: AppBrandColors.red),
             ),
             Text(
-              lang == 'es' ? 'CALORÍAS QUEMADAS' : 'CALORIES BURNED',
+              lang == 'es' ? 'CALORIAS QUEMADAS' : 'CALORIES BURNED',
               style: const TextStyle(
                   fontWeight: FontWeight.bold, color: AppBrandColors.goldDark),
             ),
@@ -294,6 +349,7 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
     String path,
     String lang,
     UserProfile user,
+    bool isPro,
   ) {
     final engineState = ref.watch(drillEngineProvider);
     final bool isProcessing = engineState.isRecording;
@@ -309,12 +365,18 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
               color: AppBrandColors.blueLight, shape: BoxShape.circle),
           child: const Icon(Icons.videocam, color: AppBrandColors.blue),
         ),
-        title: Text(lang == 'es' ? 'Video del Drill' : 'Drill Video'),
+        title: Text(lang == 'es' ? 'Video de review' : 'Review Video'),
         subtitle: Text(lang == 'es' ? 'Listo para guardar' : 'Ready to save'),
         trailing: FilledButton.icon(
           onPressed: isProcessing
               ? null
-              : () => _saveVideoToGallery(context, path, lang, user),
+              : () => _saveVideoToGallery(
+                    context,
+                    path,
+                    lang,
+                    user,
+                    isPro,
+                  ),
           icon: isProcessing
               ? const SizedBox(
                   width: 16,
@@ -356,20 +418,172 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
   }
 
   Widget _buildFooterButtons(BuildContext context, String lang) {
+    final preset = defaultOvertimeWorkoutPreset;
+    final isEs = lang == 'es';
+
     return Padding(
       padding: const EdgeInsets.all(24.0),
-      child: OutlinedButton(
-        onPressed: () =>
-            Navigator.of(context).popUntil((route) => route.isFirst),
-        style: OutlinedButton.styleFrom(
-          minimumSize: const Size.fromHeight(56),
-          side: BorderSide(color: Theme.of(context).primaryColor),
-        ),
-        child: Text(
-          lang == 'es' ? 'VOLVER AL INICIO' : 'BACK TO HOME',
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          FilledButton.icon(
+            onPressed: () => _startOvertime(context),
+            icon: const Icon(Icons.more_time),
+            label: Text(
+              isEs
+                  ? 'Ir a Overtime: ${preset.title(isEs: true)}'
+                  : 'Go Overtime: ${preset.title(isEs: false)}',
+            ),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(56),
+              backgroundColor: AppBrandColors.red,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            isEs
+                ? '3 minutos. Dificultad 9. Un periodo mas.'
+                : '3 minutes. Difficulty 9. One more period.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton(
+            onPressed: () =>
+                Navigator.of(context).popUntil((route) => route.isFirst),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
+              side: BorderSide(color: Theme.of(context).primaryColor),
+            ),
+            child: Text(
+              lang == 'es' ? 'VOLVER AL INICIO' : 'BACK TO HOME',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
       ),
     );
   }
+
+  void _startOvertime(BuildContext context) {
+    final preset = defaultOvertimeWorkoutPreset;
+    final difficulty = _intervalForDifficulty(preset.recommendedDifficulty);
+    final notifier = ref.read(drillConfigProvider.notifier);
+    final shouldDisableFreeRecording =
+        !ref.read(isProProvider) && ref.read(drillConfigProvider).videoEnabled;
+
+    notifier.applyWorkoutPreset(
+      preset,
+      totalDurationSeconds: preset.recommendedDurationSeconds,
+      minIntervalSeconds: difficulty.$1,
+      maxIntervalSeconds: difficulty.$2,
+      videoEnabled: shouldDisableFreeRecording ? false : null,
+    );
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const DrillRunnerScreen()),
+    );
+  }
+}
+
+class _NextChaseCard extends StatelessWidget {
+  final Badge badge;
+  final int calloutsCompleted;
+  final String lang;
+
+  const _NextChaseCard({
+    required this.badge,
+    required this.calloutsCompleted,
+    required this.lang,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isEs = lang == 'es';
+    final remaining = _badgeRemaining(badge);
+    final unit = _badgeUnit(badge);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppBrandColors.black,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppBrandColors.gold.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.auto_awesome, color: AppBrandColors.gold),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  isEs ? 'Siguiente persecucion' : 'Next Chase',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: AppBrandColors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            isEs
+                ? 'Completaste $calloutsCompleted comandos. Faltan $remaining $unit para ${badge.displayTitle}.'
+                : 'You completed $calloutsCompleted callouts. $remaining $unit to ${badge.displayTitle}.',
+            style: TextStyle(
+              color: AppBrandColors.white.withValues(alpha: 0.78),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: badge.completionRatio,
+              minHeight: 8,
+              backgroundColor: AppBrandColors.white.withValues(alpha: 0.16),
+              valueColor: const AlwaysStoppedAnimation(AppBrandColors.gold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+(double, double) _intervalForDifficulty(int difficulty) {
+  if (difficulty <= 3) return (3.0, 5.0);
+  if (difficulty <= 6) return (2.0, 4.0);
+  if (difficulty <= 8) return (1.0, 2.0);
+  return (0.5, 1.5);
+}
+
+int _badgeRemaining(Badge badge) {
+  return (badge.targetProgress - badge.currentProgress).clamp(0, 1 << 30);
+}
+
+String _badgeUnit(Badge badge) {
+  final remaining = _badgeRemaining(badge);
+  final plural = remaining == 1 ? '' : 's';
+  if (badge.category == BadgeCategory.streak) return 'day$plural';
+  if (badge.category == BadgeCategory.timedMastery ||
+      badge.iconName == 'timer' ||
+      badge.iconName == 'stance' ||
+      badge.iconName == 'hand_fight' ||
+      badge.iconName == 'high_knees' ||
+      badge.iconName == 'foot_fire') {
+    return 'minute$plural';
+  }
+  if (badge.category == BadgeCategory.grind) return 'workout$plural';
+  if (badge.category == BadgeCategory.flex) return 'bonus workout$plural';
+  if (badge.category == BadgeCategory.combo) return 'session$plural';
+  return 'rep$plural';
 }

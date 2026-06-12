@@ -1,4 +1,4 @@
-package com.yourname.shot_stance_sprawl
+package com.snapandgo.shadowwrestling
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -34,7 +34,7 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 class MainActivity : FlutterActivity() {
-    private val CHANNEL = "com.yourname.shot_stance_sprawl/watermark"
+    private val CHANNEL = "com.snapandgo.shadowwrestling/watermark"
     private val TAG = "WatermarkExport"
     private var activeTransformer: Transformer? = null
 

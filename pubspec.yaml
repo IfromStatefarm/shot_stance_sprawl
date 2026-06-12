@@ -28,6 +28,11 @@ dependencies:
   audioplayers: ^6.5.1
   audio_session: ^0.1.25
   record: ^6.1.2
+  share_plus: ^13.1.0
+  flutter_local_notifications: ^22.0.0
+  timezone: ^0.11.0
+  flutter_timezone: ^5.1.0
+  open_filex: ^4.7.0
 
 dev_dependencies:
   flutter_test:
@@ -41,5 +46,8 @@ flutter:
     - assets/audio/callouts/
     - assets/audio/ad_libs/
     - assets/images/keepkidswrestling_logo.png
+    - assets/images/language/
+    - assets/images/snap_and_go_background.png
     - assets/images/watermark logo transparent.png
     - assets/images/kkwloading_page.mp4
+    - assets/images/callout_icons/

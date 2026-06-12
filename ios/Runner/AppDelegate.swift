@@ -11,7 +11,7 @@ import AVFoundation
   ) -> Bool {
       
     let controller = window?.rootViewController as! FlutterViewController
-    let channel = FlutterMethodChannel(name: "com.yourname.shot_stance_sprawl/watermark",
+    let channel = FlutterMethodChannel(name: "com.snapandgo.shadowwrestling/watermark",
                                       binaryMessenger: controller.binaryMessenger)
     
     channel.setMethodCallHandler { [weak self] (call, result) in
