@@ -37,9 +37,9 @@ android {
 
 dependencies {
     // Jetpack Media3 for Native Hardware-Accelerated Video Editing
-    implementation("androidx.media3:media3-transformer:1.3.0")
-    implementation("androidx.media3:media3-effect:1.3.0")
-    implementation("androidx.media3:media3-common:1.3.0")
+    implementation("androidx.media3:media3-transformer:1.10.1")
+    implementation("androidx.media3:media3-effect:1.10.1")
+    implementation("androidx.media3:media3-common:1.10.1")
     
     // Required by Media3 for ImmutableList and other collections used in MainActivity.kt
     implementation("com.google.guava:guava:32.1.3-android")

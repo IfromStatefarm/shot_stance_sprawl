@@ -5,7 +5,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
-    <string>Shot Stance Sprawl</string>
+    <string>Snap&amp;Go</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key>
@@ -13,7 +13,7 @@
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>shot_stance_sprawl</string>
+    <string>Snap&amp;Go</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -29,17 +29,14 @@
     <key>UIMainStoryboardFile</key>
     <string>Main</string>
 
-    <key>NSPhotoLibraryAddUsageDescription</key>
-    <string>We need access to save your branded wrestling drill videos to your gallery.</string>
-    
     <key>NSCameraUsageDescription</key>
     <string>We need camera access to record your shadow wrestling drills for review.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>We need microphone access so you can record your own custom voice callouts.</string>
+    <string>We need microphone access so you can record custom voice callouts and drill videos.</string>
     <key>NSPhotoLibraryAddUsageDescription</key>
     <string>We need permission to save your recorded workout videos to your gallery.</string>
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>We need permission to access your gallery to manage workout videos.</string>
+    <string>We need permission to let you choose a profile photo from your gallery.</string>
 
     <key>UISupportedInterfaceOrientations</key>
     <array>

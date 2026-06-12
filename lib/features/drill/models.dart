@@ -171,6 +171,13 @@ class Callout {
   int get hashCode => id.hashCode;
 }
 
+const Map<String, int> _legacyHandFightDurations = {
+  'hand_fight_15': 15,
+  'hand_fight_30': 30,
+  'hand_fight_45': 45,
+  'hand_fight_60': 60,
+};
+
 @immutable
 class DrillConfig {
   final int totalDurationSeconds;
@@ -178,8 +185,10 @@ class DrillConfig {
   final double maxIntervalSeconds;
   final Set<String> enabledCalloutIds;
   final Map<String, String> customAudioPaths;
+  final Map<String, String> customAdLibAudioPaths;
   final Map<String, int> calloutOverrideDurations; 
   final bool videoEnabled;
+  final bool adLibsEnabled;
 
   const DrillConfig({
     this.totalDurationSeconds = 60,
@@ -187,8 +196,10 @@ class DrillConfig {
     this.maxIntervalSeconds = 4.0,
     this.enabledCalloutIds = const {},
     this.customAudioPaths = const {},
+    this.customAdLibAudioPaths = const {},
     this.calloutOverrideDurations = const {}, 
     this.videoEnabled = false,
+    this.adLibsEnabled = false,
   });
 
   double get metValue {
@@ -203,8 +214,10 @@ class DrillConfig {
     double? maxIntervalSeconds,
     Set<String>? enabledCalloutIds,
     Map<String, String>? customAudioPaths,
+    Map<String, String>? customAdLibAudioPaths,
     Map<String, int>? calloutOverrideDurations, 
     bool? videoEnabled,
+    bool? adLibsEnabled,
   }) {
     return DrillConfig(
       totalDurationSeconds: totalDurationSeconds ?? this.totalDurationSeconds,
@@ -212,8 +225,11 @@ class DrillConfig {
       maxIntervalSeconds: maxIntervalSeconds ?? this.maxIntervalSeconds,
       enabledCalloutIds: enabledCalloutIds ?? this.enabledCalloutIds,
       customAudioPaths: customAudioPaths ?? this.customAudioPaths,
+      customAdLibAudioPaths:
+          customAdLibAudioPaths ?? this.customAdLibAudioPaths,
       calloutOverrideDurations: calloutOverrideDurations ?? this.calloutOverrideDurations, 
       videoEnabled: videoEnabled ?? this.videoEnabled,
+      adLibsEnabled: adLibsEnabled ?? this.adLibsEnabled,
     );
   }
 
@@ -224,20 +240,55 @@ class DrillConfig {
       'maxIntervalSeconds': maxIntervalSeconds,
       'enabledCalloutIds': enabledCalloutIds.toList(),
       'customAudioPaths': customAudioPaths,
+      'customAdLibAudioPaths': customAdLibAudioPaths,
       'calloutOverrideDurations': calloutOverrideDurations, 
       'videoEnabled': videoEnabled,
+      'adLibsEnabled': adLibsEnabled,
     };
   }
 
   factory DrillConfig.fromMap(Map<String, dynamic> map) {
+    final enabledCalloutIds =
+        Set<String>.from(map['enabledCalloutIds'] ?? []);
+    final customAudioPaths =
+        Map<String, String>.from(map['customAudioPaths'] ?? {});
+    final calloutOverrideDurations =
+        Map<String, int>.from(map['calloutOverrideDurations'] ?? {});
+
+    int? migratedHandFightDuration;
+    for (final entry in _legacyHandFightDurations.entries) {
+      final oldId = entry.key;
+      if (enabledCalloutIds.remove(oldId)) {
+        enabledCalloutIds.add('hand_fight');
+        migratedHandFightDuration =
+            calloutOverrideDurations[oldId] ?? entry.value;
+      }
+
+      if (customAudioPaths.containsKey(oldId) &&
+          !customAudioPaths.containsKey('hand_fight')) {
+        customAudioPaths['hand_fight'] = customAudioPaths[oldId]!;
+      }
+
+      calloutOverrideDurations.remove(oldId);
+      customAudioPaths.remove(oldId);
+    }
+
+    if (migratedHandFightDuration != null &&
+        !calloutOverrideDurations.containsKey('hand_fight')) {
+      calloutOverrideDurations['hand_fight'] = migratedHandFightDuration;
+    }
+
     return DrillConfig(
       totalDurationSeconds: map['totalDurationSeconds']?.toInt() ?? 60,
       minIntervalSeconds: map['minIntervalSeconds']?.toDouble() ?? 2.0,
       maxIntervalSeconds: map['maxIntervalSeconds']?.toDouble() ?? 4.0,
-      enabledCalloutIds: Set<String>.from(map['enabledCalloutIds'] ?? []),
-      customAudioPaths: Map<String, String>.from(map['customAudioPaths'] ?? {}),
-      calloutOverrideDurations: Map<String, int>.from(map['calloutOverrideDurations'] ?? {}), 
+      enabledCalloutIds: enabledCalloutIds,
+      customAudioPaths: customAudioPaths,
+      customAdLibAudioPaths:
+          Map<String, String>.from(map['customAdLibAudioPaths'] ?? {}),
+      calloutOverrideDurations: calloutOverrideDurations,
       videoEnabled: map['videoEnabled'] ?? false,
+      adLibsEnabled: map['adLibsEnabled'] ?? false,
     );
   }
 

@@ -1,12 +1,14 @@
-import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../billing/pro_purchase.dart';
 import '../../data/repositories.dart';
 import 'models.dart';
 import 'drill_engine.dart';
 
 export 'models.dart';
 export 'drill_engine.dart';
+export '../billing/pro_purchase.dart';
 
 final sharedPrefsProvider = FutureProvider<SharedPreferences>((ref) async {
   return await SharedPreferences.getInstance();
@@ -14,39 +16,14 @@ final sharedPrefsProvider = FutureProvider<SharedPreferences>((ref) async {
 
 final languageProvider = StateProvider<String>((ref) => 'en');
 
-// REFACTORED: showCalloutButtonsProvider is now adLibEnabledProvider
-final adLibEnabledProvider = StateProvider<bool>((ref) => true);
-
-final isProProvider = NotifierProvider<IsProNotifier, bool>(() {
-  return IsProNotifier();
+final proPurchaseProvider =
+    NotifierProvider<ProPurchaseController, ProPurchaseState>(() {
+  return ProPurchaseController();
 });
 
-class IsProNotifier extends Notifier<bool> {
-  static const _keyIsPro = 'is_pro_user';
-
-  @override
-  bool build() {
-    _load();
-    return false; // Defaults to Free Plan
-  }
-
-  Future<void> _load() async {
-    final prefs = await ref.read(sharedPrefsProvider.future);
-    state = prefs.getBool(_keyIsPro) ?? false;
-  }
-
-  Future<void> toggle() async {
-    state = !state;
-    final prefs = await ref.read(sharedPrefsProvider.future);
-    await prefs.setBool(_keyIsPro, state);
-  }
-
-  Future<void> setStatus(bool isPro) async {
-    state = isPro;
-    final prefs = await ref.read(sharedPrefsProvider.future);
-    await prefs.setBool(_keyIsPro, state);
-  }
-}
+final isProProvider = Provider<bool>((ref) {
+  return ref.watch(proPurchaseProvider.select((state) => state.isPro));
+});
 
 final drillConfigProvider = NotifierProvider<DrillConfigNotifier, DrillConfig>(() {
   return DrillConfigNotifier();
@@ -76,7 +53,7 @@ class DrillConfigNotifier extends Notifier<DrillConfig> {
         state = DrillConfig.fromJson(jsonString);
       }
     } catch (e) {
-      print("Error loading drill config: $e");
+      debugPrint("Error loading drill config: $e");
     }
   }
 
@@ -94,7 +71,11 @@ class DrillConfigNotifier extends Notifier<DrillConfig> {
   
   void toggleCallout(String id, {required bool enabled}) {
     final ids = Set<String>.from(state.enabledCalloutIds);
-    if (enabled) ids.add(id); else ids.remove(id);
+    if (enabled) {
+      ids.add(id);
+    } else {
+      ids.remove(id);
+    }
     state = state.copyWith(enabledCalloutIds: ids);
     _save();
   }
@@ -114,10 +95,41 @@ class DrillConfigNotifier extends Notifier<DrillConfig> {
     _save();
   }
 
+  void setVideoEnabled(bool enabled) {
+    state = state.copyWith(videoEnabled: enabled);
+    _save();
+  }
+
+  void setAdLibsEnabled(bool enabled) {
+    state = state.copyWith(adLibsEnabled: enabled);
+    _save();
+  }
+
   void updateCalloutAudio(String id, String path) {
     final paths = Map<String, String>.from(state.customAudioPaths);
     paths[id] = path;
     state = state.copyWith(customAudioPaths: paths);
+    _save();
+  }
+
+  void removeCalloutAudio(String id) {
+    final paths = Map<String, String>.from(state.customAudioPaths);
+    paths.remove(id);
+    state = state.copyWith(customAudioPaths: paths);
+    _save();
+  }
+
+  void updateAdLibAudio(String id, String path) {
+    final paths = Map<String, String>.from(state.customAdLibAudioPaths);
+    paths[id] = path;
+    state = state.copyWith(customAdLibAudioPaths: paths);
+    _save();
+  }
+
+  void removeAdLibAudio(String id) {
+    final paths = Map<String, String>.from(state.customAdLibAudioPaths);
+    paths.remove(id);
+    state = state.copyWith(customAdLibAudioPaths: paths);
     _save();
   }
 }
@@ -190,18 +202,15 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
   final List<Callout> _defaults = [
     const Callout(id: 'shot', nameEn: 'Shot', nameEs: 'Tiro', type: 'Movement', audioAssetAlias: 'Shot'),
     const Callout(id: 'sprawl', nameEn: 'Sprawl', nameEs: 'Sprawl', type: 'Movement', audioAssetAlias: 'Sprawl'),
-    const Callout(id: 'stance', nameEn: 'Stance', nameEs: 'Postura', type: 'Movement', audioAssetAlias: 'Stance'),
+    const Callout(id: 'stance', nameEn: 'Stance', nameEs: 'Postura', type: 'Duration', defaultDurationSeconds: 15, audioAssetAlias: 'Stance'),
     const Callout(id: 'circle', nameEn: 'Circle/Spin', nameEs: 'Círculo/Giro', type: 'Movement', audioAssetAlias: 'Circle'), 
     const Callout(id: 'down_block', nameEn: 'Down Block', nameEs: 'Bloqueo Abajo', type: 'Movement', audioAssetAlias: 'Down_Block'),
     const Callout(id: 'fake', nameEn: 'Fake', nameEs: 'Finta', type: 'Movement', audioAssetAlias: 'Fake'),
     const Callout(id: 'level_change', nameEn: 'Level Change', nameEs: 'Cambio de Nivel', type: 'Movement', audioAssetAlias: 'Level_Change'),
     const Callout(id: 'snap_down', nameEn: 'Snap Down', nameEs: 'Jalón', type: 'Movement', audioAssetAlias: 'Snap_Down'),
-    const Callout(id: 'high_knees', nameEn: 'High Knees', nameEs: 'Rodillas Altas', type: 'Movement', audioAssetAlias: 'High_Knees'),
+    const Callout(id: 'high_knees', nameEn: 'High Knees', nameEs: 'Rodillas Altas', type: 'Duration', defaultDurationSeconds: 15, audioAssetAlias: 'High_Knees'),
     const Callout(id: 'foot_fire', nameEn: 'Foot Fire', nameEs: 'Fuego Pies', type: 'Duration', defaultDurationSeconds: 5, audioAssetAlias: 'Foot_Fire'),
-    const Callout(id: 'hand_fight_15', nameEn: 'Hand Fight (15s)', nameEs: 'Manos (15s)', type: 'Duration', defaultDurationSeconds: 15, audioAssetAlias: 'Hand_Fight'),
-    const Callout(id: 'hand_fight_30', nameEn: 'Hand Fight (30s)', nameEs: 'Manos (30s)', type: 'Duration', defaultDurationSeconds: 30, audioAssetAlias: 'Hand_Fight'),
-    const Callout(id: 'hand_fight_45', nameEn: 'Hand Fight (45s)', nameEs: 'Manos (45s)', type: 'Duration', defaultDurationSeconds: 45, audioAssetAlias: 'Hand_Fight'),
-    const Callout(id: 'hand_fight_60', nameEn: 'Hand Fight (60s)', nameEs: 'Manos (60s)', type: 'Duration', defaultDurationSeconds: 60, audioAssetAlias: 'Hand_Fight'),
+    const Callout(id: 'hand_fight', nameEn: 'Hand Fight', nameEs: 'Manos', type: 'Duration', defaultDurationSeconds: 15, audioAssetAlias: 'Hand_Fight'),
   ];
 
   @override
@@ -232,15 +241,7 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
     final currentList = state.value ?? _defaults;
     final updatedList = currentList.map((c) {
       if (c.id == id && c.isCustom) {
-        return Callout(
-          id: c.id, 
-          nameEn: newName, 
-          nameEs: newName, 
-          type: c.type, 
-          audioUrl: c.audioUrl, 
-          isCustom: c.isCustom, 
-          defaultDurationSeconds: c.defaultDurationSeconds
-        );
+        return c.copyWith(nameEn: newName, nameEs: newName);
       }
       return c;
     }).toList();

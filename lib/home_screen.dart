@@ -1,17 +1,16 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:camera/camera.dart';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 
-import 'package:shot_stance_sprawl/features/drill/models.dart';
 import 'package:shot_stance_sprawl/features/drill/providers.dart';
-import 'package:shot_stance_sprawl/features/drill/drill_engine.dart';
-import 'package:shot_stance_sprawl/drill_runner.dart'; 
+import 'package:shot_stance_sprawl/features/drill/recording_policy.dart';
+import 'package:shot_stance_sprawl/drill_runner.dart';
+import 'app_theme.dart';
 import 'settings_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -21,14 +20,52 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
+class _BrandTitle extends StatelessWidget {
+  const _BrandTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0,
+          height: 1,
+        );
+
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Text.rich(
+        TextSpan(
+          style: style,
+          children: const [
+            TextSpan(
+              text: 'Snap & Go ',
+              style: TextStyle(color: AppBrandColors.red),
+            ),
+            TextSpan(
+              text: 'Shadow Wrestling Coach',
+              style: TextStyle(color: AppBrandColors.black),
+            ),
+          ],
+        ),
+        maxLines: 1,
+      ),
+    );
+  }
+}
+
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  double _difficultyValue = 1.0; 
+  double _difficultyValue = 1.0;
+  bool _showFreeVideoDurationHint = false;
+  final bool _legacyFreeVideoLimitMessageEnabled = false;
+  DateTime? _lastFreeVideoDurationToastAt;
+  Timer? _freeVideoDurationHintTimer;
 
   final List<(String, double, double)> _difficultyLevels = [
-    ('Easy (3–5s)', 3.0, 5.0),
-    ('Medium (2–4s)', 2.0, 4.0),
-    ('Hard (1–2s)', 1.0, 2.0),
-    ('Dan Gable (0.5–1.5s)', 0.5, 1.5),
+    ('Easy', 3.0, 5.0),
+    ('Medium', 2.0, 4.0),
+    ('Hard', 1.0, 2.0),
+    ('Dan Gable', 0.5, 1.5),
   ];
 
   @override
@@ -36,9 +73,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final config = ref.read(drillConfigProvider);
-      int index = 1; 
-      for(int i=0; i<_difficultyLevels.length; i++) {
-        if((config.minIntervalSeconds - _difficultyLevels[i].$2).abs() < 0.1) {
+      int index = 1;
+      for (int i = 0; i < _difficultyLevels.length; i++) {
+        if ((config.minIntervalSeconds - _difficultyLevels[i].$2).abs() < 0.1) {
           index = i;
           break;
         }
@@ -54,9 +91,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final index = value.round();
     final level = _difficultyLevels[index];
     ref.read(drillConfigProvider.notifier).setIntervalRange(
-      minSeconds: level.$2,
-      maxSeconds: level.$3,
-    );
+          minSeconds: level.$2,
+          maxSeconds: level.$3,
+        );
   }
 
   void _showFadingToast(BuildContext context, String message) {
@@ -77,12 +114,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     Future.delayed(const Duration(seconds: 3), () => entry.remove());
   }
 
-  void _showRecordingSheet(BuildContext context, WidgetRef ref, String id, String name) {
+  void _showFreeVideoDurationLockMessage(
+    BuildContext context, {
+    required bool isEs,
+  }) {
+    final now = DateTime.now();
+    final lastShown = _lastFreeVideoDurationToastAt;
+    if (lastShown != null &&
+        now.difference(lastShown) < const Duration(milliseconds: 1200)) {
+      return;
+    }
+
+    _lastFreeVideoDurationToastAt = now;
+    _showFadingToast(
+      context,
+      isEs
+          ? 'Actualiza a Pro para videos mas largos o desactiva grabacion para drills mas largos'
+          : 'Upgrade to Pro for longer videos or toggle recording off for longer drills',
+    );
+
+    setState(() => _showFreeVideoDurationHint = true);
+    _freeVideoDurationHintTimer?.cancel();
+    _freeVideoDurationHintTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) {
+        setState(() => _showFreeVideoDurationHint = false);
+      }
+    });
+  }
+
+  void _showRecordingSheet(
+    BuildContext context,
+    String id,
+    String name, {
+    String? initialAudioPath,
+  }) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (context) => _RecordingSheetContent(calloutId: id, calloutName: name),
+      builder: (context) => _RecordingSheetContent(
+        calloutId: id,
+        calloutName: name,
+        initialAudioPath: initialAudioPath,
+      ),
     );
+  }
+
+  @override
+  void dispose() {
+    _freeVideoDurationHintTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -95,10 +175,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final isPro = ref.watch(isProProvider);
 
     final isEs = lang == 'es';
+    final isFreeRecordingLocked = config.videoEnabled && !isPro;
+    final selectedDurationMinutes =
+        isFreeRecordingLocked ? 1 : (config.totalDurationSeconds / 60).round();
+    final durationSliderMaxMinutes = config.videoEnabled && isPro ? 10 : 15;
+    final durationSliderValue = isFreeRecordingLocked
+        ? 1.0
+        : selectedDurationMinutes.clamp(1, durationSliderMaxMinutes).toDouble();
+    final showFreeVideoDurationHint =
+        isFreeRecordingLocked && _showFreeVideoDurationHint;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Shot Stance Sprawl'),
+        title: const _BrandTitle(),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -113,20 +202,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         children: [
           Positioned.fill(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 160), 
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 160),
               children: [
                 Text(
                   isEs ? 'Comandos' : 'Callouts',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 12),
                 calloutsAsync.when(
-                  loading: () => const Center(child: CircularProgressIndicator()),
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
                   error: (e, _) => Center(child: Text('Error: $e')),
                   data: (list) => GridView.builder(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: 2,
                       mainAxisSpacing: 8,
                       crossAxisSpacing: 8,
@@ -138,8 +232,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       return _CalloutTile(
                         callout: c,
                         enabled: config.enabledCalloutIds.contains(c.id),
-                        onChanged: (v) => notifier.toggleCallout(c.id, enabled: v),
-                        onRecordTapped: () => _showRecordingSheet(context, ref, c.id, isEs ? c.nameEs : c.nameEn),
+                        onChanged: (v) =>
+                            notifier.toggleCallout(c.id, enabled: v),
+                        onRecordTapped: () => _showRecordingSheet(
+                          context,
+                          c.id,
+                          isEs ? c.nameEs : c.nameEn,
+                          initialAudioPath: c.audioUrl,
+                        ),
                       );
                     },
                   ),
@@ -148,21 +248,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
           DraggableScrollableSheet(
-            initialChildSize: 0.18, 
-            minChildSize: 0.18,     
-            maxChildSize: 0.65,     
+            initialChildSize: 0.18,
+            minChildSize: 0.18,
+            maxChildSize: 0.65,
             builder: (BuildContext context, ScrollController scrollController) {
               return Container(
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.surface,
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
+                      color: Colors.black.withValues(alpha: 0.2),
                       blurRadius: 15,
                       offset: const Offset(0, -5),
                     ),
                   ],
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(24)),
                 ),
                 child: SingleChildScrollView(
                   controller: scrollController,
@@ -189,64 +290,101 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             onPressed: () {
                               // BUG FIX: Prevent Silent Drill Start
                               if (config.enabledCalloutIds.isEmpty) {
-                                _showFadingToast(context, isEs ? 'Selecciona al menos un comando' : 'Select at least one callout');
+                                _showFadingToast(
+                                    context,
+                                    isEs
+                                        ? 'Selecciona al menos un comando'
+                                        : 'Select at least one callout');
                                 return;
                               }
 
-                              final engineNotifier = ref.read(drillEngineProvider.notifier);
-                              final isProVal = ref.read(isProProvider); 
-                              
                               if (engine.running) {
-                                engineNotifier.stop(); 
+                                ref.read(drillEngineProvider.notifier).stop();
                               } else {
-                                calloutsAsync.whenData((allCallouts) {
-                                  engineNotifier.start(
-                                    config: config,
-                                    allCallouts: allCallouts,
-                                    isPro: isProVal, 
-                                  );
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(builder: (_) => const DrillRunnerScreen()),
-                                  );
-                                });
+                                if (calloutsAsync.isLoading) return;
+                                if (calloutsAsync.hasError) {
+                                  _showFadingToast(
+                                      context,
+                                      isEs
+                                          ? 'Error de comandos'
+                                          : 'Callouts unavailable');
+                                  return;
+                                }
+
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                      builder: (_) =>
+                                          const DrillRunnerScreen()),
+                                );
                               }
                             },
                             style: FilledButton.styleFrom(
-                              backgroundColor: engine.running ? Colors.red : Colors.green,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              backgroundColor:
+                                  engine.running ? Colors.red : Colors.green,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16)),
                             ),
-                            icon: Icon(engine.running ? Icons.stop : Icons.play_arrow, size: 32),
+                            icon: Icon(
+                                engine.running ? Icons.stop : Icons.play_arrow,
+                                size: 32),
                             label: Text(
-                              engine.running ? (isEs ? 'DETENER' : 'STOP') : (isEs ? 'INICIAR' : 'START'),
-                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                              engine.running
+                                  ? (isEs ? 'DETENER' : 'STOP')
+                                  : (isEs ? 'INICIAR' : 'START'),
+                              style: const TextStyle(
+                                  fontSize: 20, fontWeight: FontWeight.bold),
                             ),
                           ),
                         ),
-                        
                         const SizedBox(height: 24),
                         const Divider(),
                         const SizedBox(height: 16),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text(
-                              isEs ? 'GRABAR VIDEO' : 'RECORD VIDEO', 
-                              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)
-                            ),
+                            Text(isEs ? 'GRABAR VIDEO' : 'RECORD VIDEO',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey)),
                             const SizedBox(width: 12),
                             GestureDetector(
-                              onTap: () {
-                                notifier.toggleVideo();
-                                if (!config.videoEnabled) {
-                                  ref.read(drillEngineProvider.notifier).preloadCamera();
+                              onTap: () async {
+                                final enableVideo =
+                                    !ref.read(drillConfigProvider).videoEnabled;
+                                notifier.setVideoEnabled(enableVideo);
+
+                                final drillEngine =
+                                    ref.read(drillEngineProvider.notifier);
+                                if (enableVideo) {
                                   if (!isPro) {
-                                    _showFadingToast(
-                                      context, 
-                                      isEs ? 'Límite de 60s' : 'Free limit: 60s'
+                                    _showFreeVideoDurationLockMessage(
+                                      context,
+                                      isEs: isEs,
                                     );
                                   }
+                                  if (_legacyFreeVideoLimitMessageEnabled &&
+                                      !isPro) {
+                                    if (ref
+                                            .read(drillConfigProvider)
+                                            .totalDurationSeconds >
+                                        RecordingPolicy
+                                            .freeRecordingLimitSeconds) {
+                                      setState(() {
+                                        _showFreeVideoDurationHint = true;
+                                      });
+                                    }
+                                    _showFadingToast(
+                                        context,
+                                        isEs
+                                            ? 'Límite de 60s'
+                                            : 'Free limit: 60s');
+                                  }
+                                  await drillEngine.preloadCamera();
                                 } else {
-                                  ref.read(drillEngineProvider.notifier).disposeCamera();
+                                  setState(() {
+                                    _showFreeVideoDurationHint = false;
+                                  });
+                                  await drillEngine.disposeCamera();
                                 }
                               },
                               child: AnimatedContainer(
@@ -255,13 +393,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 width: 48,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: config.videoEnabled ? Colors.red : Colors.grey[300],
-                                  boxShadow: config.videoEnabled 
-                                      ? [BoxShadow(color: Colors.red.withOpacity(0.5), blurRadius: 10, spreadRadius: 2)] 
+                                  color: config.videoEnabled
+                                      ? Colors.red
+                                      : Colors.grey[300],
+                                  boxShadow: config.videoEnabled
+                                      ? [
+                                          BoxShadow(
+                                              color:
+                                                  Colors.red.withValues(alpha: 0.5),
+                                              blurRadius: 10,
+                                              spreadRadius: 2)
+                                        ]
                                       : [],
                                 ),
                                 child: Icon(
-                                  config.videoEnabled ? Icons.videocam : Icons.videocam_off,
+                                  config.videoEnabled
+                                      ? Icons.videocam
+                                      : Icons.videocam_off,
                                   color: Colors.white,
                                 ),
                               ),
@@ -271,35 +419,89 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         const SizedBox(height: 20),
                         Row(
                           children: [
-                            const Icon(Icons.timer, size: 20, color: Colors.grey),
+                            const Icon(Icons.timer,
+                                size: 20, color: Colors.grey),
                             const SizedBox(width: 8),
-                            Text(isEs ? 'Duración:' : 'Duration:', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            Text(isEs ? 'Duración:' : 'Duration:',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold)),
                             const Spacer(),
                             Text(
-                              '${(config.totalDurationSeconds / 60).round()} min',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              '${durationSliderValue.round()} min',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 16),
                             ),
                           ],
                         ),
+                        if (showFreeVideoDurationHint)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 6),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(width: 28),
+                                Expanded(
+                                  child: Text(
+                                    'Upgrade to Pro for longer videos or toggle recording for longer drills',
+                                    style: TextStyle(
+                                      color: AppBrandColors.goldDark,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.2,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         Slider(
-                          value: (config.totalDurationSeconds / 60).toDouble(),
+                          value: durationSliderValue,
                           min: 1,
-                          max: 15,
-                          divisions: 14,
-                          label: '${(config.totalDurationSeconds / 60).round()} min',
+                          max: durationSliderMaxMinutes.toDouble(),
+                          divisions: durationSliderMaxMinutes - 1,
+                          label:
+                              '${durationSliderValue.round().toString()} min',
+                          onChangeStart: (_) {
+                            if (isFreeRecordingLocked) {
+                              _showFreeVideoDurationLockMessage(
+                                context,
+                                isEs: isEs,
+                              );
+                            }
+                          },
                           onChanged: (val) {
-                            notifier.setTotalDurationSeconds((val * 60).round());
+                            if (isFreeRecordingLocked) {
+                              _showFreeVideoDurationLockMessage(
+                                context,
+                                isEs: isEs,
+                              );
+                              return;
+                            }
+
+                            final requestedSeconds = (val * 60).round();
+                            notifier.setTotalDurationSeconds(requestedSeconds);
+                            if (_showFreeVideoDurationHint) {
+                              setState(() {
+                                _showFreeVideoDurationHint = false;
+                              });
+                            }
                           },
                         ),
                         Row(
                           children: [
-                            const Icon(Icons.speed, size: 20, color: Colors.grey),
+                            const Icon(Icons.speed,
+                                size: 20, color: Colors.grey),
                             const SizedBox(width: 8),
-                            Text(isEs ? 'Dificultad:' : 'Difficulty:', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            Text(isEs ? 'Dificultad:' : 'Difficulty:',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold)),
                             const Spacer(),
                             Text(
                               _difficultyLevels[_difficultyValue.round()].$1,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue),
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  color: AppBrandColors.blue),
                             ),
                           ],
                         ),
@@ -323,7 +525,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 }
-  
+
 class _FadeToast extends StatefulWidget {
   final String message;
   const _FadeToast({required this.message});
@@ -332,14 +534,16 @@ class _FadeToast extends StatefulWidget {
   State<_FadeToast> createState() => _FadeToastState();
 }
 
-class _FadeToastState extends State<_FadeToast> with SingleTickerProviderStateMixin {
+class _FadeToastState extends State<_FadeToast>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _opacity;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 500));
+    _controller = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 500));
     _opacity = Tween<double>(begin: 0.0, end: 1.0).animate(_controller);
     _controller.forward();
     Future.delayed(const Duration(milliseconds: 2500), () {
@@ -365,7 +569,8 @@ class _FadeToastState extends State<_FadeToast> with SingleTickerProviderStateMi
         ),
         child: Text(
           widget.message,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style:
+              const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           textAlign: TextAlign.center,
         ),
       ),
@@ -374,7 +579,7 @@ class _FadeToastState extends State<_FadeToast> with SingleTickerProviderStateMi
 }
 
 class _CalloutTile extends ConsumerWidget {
-  final Callout callout; 
+  final Callout callout;
   final bool enabled;
   final ValueChanged<bool> onChanged;
   final VoidCallback onRecordTapped;
@@ -388,22 +593,32 @@ class _CalloutTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final hasRecording = ref.watch(drillConfigProvider).customAudioPaths.containsKey(callout.id);
-    final overrideMap = ref.watch(drillConfigProvider).calloutOverrideDurations;
-    final currentDuration = overrideMap[callout.id] ?? callout.defaultDurationSeconds;
-    
+    final config = ref.watch(drillConfigProvider);
+    final savedAudioPath =
+        config.customAudioPaths[callout.id] ?? callout.audioUrl;
+    final hasRecording = savedAudioPath != null && savedAudioPath.isNotEmpty;
+    final overrideMap = config.calloutOverrideDurations;
+    final currentDuration =
+        overrideMap[callout.id] ?? callout.defaultDurationSeconds;
+
     final isPro = ref.watch(isProProvider);
+    final proPurchase = ref.watch(proPurchaseProvider);
     final lang = ref.watch(languageProvider);
     final displayName = lang == 'es' ? callout.nameEs : callout.nameEn;
 
     return Card(
       elevation: enabled ? 3 : 1,
-      color: enabled 
-          ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3) 
+      color: enabled
+          ? Theme.of(context)
+              .colorScheme
+              .primaryContainer
+              .withValues(alpha: 0.3)
           : Theme.of(context).colorScheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: enabled ? BorderSide(color: Theme.of(context).colorScheme.primary, width: 2) : BorderSide.none,
+        side: enabled
+            ? BorderSide(color: Theme.of(context).colorScheme.primary, width: 2)
+            : BorderSide.none,
       ),
       child: InkWell(
         onTap: () => onChanged(!enabled),
@@ -419,12 +634,18 @@ class _CalloutTile extends ConsumerWidget {
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
-                      color: enabled ? Theme.of(context).colorScheme.onSurface : Colors.grey,
+                      color: enabled
+                          ? Theme.of(context).colorScheme.onSurface
+                          : Colors.grey,
                     ),
                     textAlign: TextAlign.center,
                   ),
                   if (enabled)
-                    Text("ON", style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w900)),
+                    Text("ON",
+                        style: TextStyle(
+                            fontSize: 10,
+                            color: Theme.of(context).colorScheme.primary,
+                            fontWeight: FontWeight.w900)),
                 ],
               ),
             ),
@@ -435,11 +656,15 @@ class _CalloutTile extends ConsumerWidget {
                 onTap: () {
                   if (isPro) {
                     onRecordTapped();
+                  } else if (proPurchase.canBuy) {
+                    unawaited(ref.read(proPurchaseProvider.notifier).buyPro());
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: const Text('Upgrade to Pro to customize audio!'),
-                        action: SnackBarAction(label: 'UPGRADE', onPressed: () => ref.read(isProProvider.notifier).setStatus(true)),
+                        content: Text(
+                          proPurchase.errorMessage ??
+                              'Snap&Go Pro is loading. Try again in a moment.',
+                        ),
                       ),
                     );
                   }
@@ -448,12 +673,17 @@ class _CalloutTile extends ConsumerWidget {
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Theme.of(context).canvasColor.withOpacity(0.5),
+                    color:
+                        Theme.of(context).canvasColor.withValues(alpha: 0.5),
                   ),
                   child: Icon(
-                    !isPro && !callout.isCustom ? Icons.lock : (hasRecording ? Icons.mic : Icons.mic_none),
+                    !isPro && !callout.isCustom
+                        ? Icons.lock
+                        : (hasRecording ? Icons.mic : Icons.mic_none),
                     size: 16,
-                    color: !isPro ? Colors.orange : (hasRecording ? Colors.blue : Colors.grey),
+                    color: !isPro
+                        ? AppBrandColors.gold
+                        : (hasRecording ? AppBrandColors.blue : Colors.grey),
                   ),
                 ),
               ),
@@ -464,13 +694,17 @@ class _CalloutTile extends ConsumerWidget {
                 right: 4,
                 child: GestureDetector(
                   onTap: () {
-                    if (!enabled) return; 
-                    _showDurationPicker(context, ref, callout.id, currentDuration);
+                    if (!enabled) return;
+                    _showDurationPicker(
+                        context, ref, callout.id, currentDuration);
                   },
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: enabled ? Theme.of(context).colorScheme.primary : Colors.grey[300],
+                      color: enabled
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.grey[300],
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -490,7 +724,8 @@ class _CalloutTile extends ConsumerWidget {
     );
   }
 
-  void _showDurationPicker(BuildContext context, WidgetRef ref, String id, int current) {
+  void _showDurationPicker(
+      BuildContext context, WidgetRef ref, String id, int current) {
     showModalBottomSheet(
       context: context,
       builder: (ctx) {
@@ -499,7 +734,8 @@ class _CalloutTile extends ConsumerWidget {
           height: 200,
           child: Column(
             children: [
-              const Text("Select Duration", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              const Text("Select Duration",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
               const SizedBox(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -510,7 +746,9 @@ class _CalloutTile extends ConsumerWidget {
                     label: Text("${val}s"),
                     selected: isSelected,
                     onSelected: (_) {
-                      ref.read(drillConfigProvider.notifier).setCalloutDuration(id, val);
+                      ref
+                          .read(drillConfigProvider.notifier)
+                          .setCalloutDuration(id, val);
                       Navigator.pop(ctx);
                     },
                   );
@@ -527,17 +765,32 @@ class _CalloutTile extends ConsumerWidget {
 class _RecordingSheetContent extends ConsumerStatefulWidget {
   final String calloutId;
   final String calloutName;
-  const _RecordingSheetContent({required this.calloutId, required this.calloutName});
+  final String? initialAudioPath;
+
+  const _RecordingSheetContent({
+    required this.calloutId,
+    required this.calloutName,
+    this.initialAudioPath,
+  });
 
   @override
-  ConsumerState<_RecordingSheetContent> createState() => _RecordingSheetContentState();
+  ConsumerState<_RecordingSheetContent> createState() =>
+      _RecordingSheetContentState();
 }
 
-class _RecordingSheetContentState extends ConsumerState<_RecordingSheetContent> {
+class _RecordingSheetContentState
+    extends ConsumerState<_RecordingSheetContent> {
   final recorder = AudioRecorder();
   final audioPlayer = AudioPlayer();
   bool isRecording = false;
-  String? recordedPath; 
+  String? recordedPath;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(audioPlayer.setPlayerMode(PlayerMode.mediaPlayer));
+    unawaited(audioPlayer.setReleaseMode(ReleaseMode.stop));
+  }
 
   @override
   void dispose() {
@@ -549,11 +802,12 @@ class _RecordingSheetContentState extends ConsumerState<_RecordingSheetContent> 
   Future<void> _startRecording() async {
     if (await recorder.hasPermission()) {
       final dir = await getApplicationDocumentsDirectory();
-      final path = '${dir.path}/${widget.calloutId}_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      
+      final path =
+          '${dir.path}/${widget.calloutId}_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
       const config = RecordConfig(encoder: AudioEncoder.aacLc);
       await recorder.start(config, path: path);
-      
+
       setState(() => isRecording = true);
     }
   }
@@ -564,16 +818,48 @@ class _RecordingSheetContentState extends ConsumerState<_RecordingSheetContent> 
       isRecording = false;
       recordedPath = path;
     });
-    
+
     if (path != null) {
-      ref.read(drillConfigProvider.notifier).updateCalloutAudio(widget.calloutId, path);
+      ref
+          .read(drillConfigProvider.notifier)
+          .updateCalloutAudio(widget.calloutId, path);
+    }
+  }
+
+  Future<void> _playPreview(String path) async {
+    try {
+      await audioPlayer.stop();
+      await audioPlayer.play(DeviceFileSource(path));
+    } catch (e) {
+      debugPrint('Could not play custom callout preview: $e');
+    }
+  }
+
+  Future<void> _deleteOverrideRecording(String path) async {
+    await audioPlayer.stop();
+    ref.read(drillConfigProvider.notifier).removeCalloutAudio(widget.calloutId);
+
+    setState(() {
+      recordedPath = null;
+      isRecording = false;
+    });
+
+    try {
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (e) {
+      debugPrint('Could not delete custom callout audio: $e');
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final config = ref.watch(drillConfigProvider);
-    final activePath = recordedPath ?? config.customAudioPaths[widget.calloutId];
+    final overridePath = config.customAudioPaths[widget.calloutId];
+    final resettablePath = recordedPath ?? overridePath;
+    final activePath = resettablePath ?? widget.initialAudioPath;
     final lang = ref.watch(languageProvider);
 
     return Container(
@@ -581,12 +867,19 @@ class _RecordingSheetContentState extends ConsumerState<_RecordingSheetContent> 
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+          Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2))),
           const SizedBox(height: 24),
           Text(
-            isRecording 
-              ? (lang == 'es' ? 'Grabando...' : 'Recording...') 
-              : (lang == 'es' ? 'Voz: ${widget.calloutName}' : 'Voice: ${widget.calloutName}'),
+            isRecording
+                ? (lang == 'es' ? 'Grabando...' : 'Recording...')
+                : (lang == 'es'
+                    ? 'Voz: ${widget.calloutName}'
+                    : 'Voice: ${widget.calloutName}'),
             style: Theme.of(context).textTheme.headlineSmall,
           ),
           const SizedBox(height: 32),
@@ -599,35 +892,55 @@ class _RecordingSheetContentState extends ConsumerState<_RecordingSheetContent> 
                     onTap: isRecording ? _stopRecording : _startRecording,
                     child: CircleAvatar(
                       radius: 36,
-                      backgroundColor: isRecording ? Colors.red : Colors.redAccent,
-                      child: Icon(isRecording ? Icons.stop : Icons.mic, color: Colors.white, size: 32),
+                      backgroundColor:
+                          isRecording ? Colors.red : Colors.redAccent,
+                      child: Icon(isRecording ? Icons.stop : Icons.mic,
+                          color: Colors.white, size: 32),
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(isRecording ? "STOP" : "REC"),
                 ],
               ),
-
               if (activePath != null && !isRecording)
                 Column(
                   children: [
                     GestureDetector(
-                      onTap: () => audioPlayer.play(DeviceFileSource(activePath)),
+                      onTap: () => _playPreview(activePath),
                       child: const CircleAvatar(
                         radius: 36,
-                        backgroundColor: Colors.blueAccent,
-                        child: Icon(Icons.play_arrow, color: Colors.white, size: 32),
+                        backgroundColor: AppBrandColors.blue,
+                        child: Icon(Icons.play_arrow,
+                            color: Colors.white, size: 32),
                       ),
                     ),
                     const SizedBox(height: 8),
                     const Text("PLAY"),
                   ],
                 ),
+              if (resettablePath != null &&
+                  resettablePath != widget.initialAudioPath &&
+                  !isRecording)
+                Column(
+                  children: [
+                    GestureDetector(
+                      onTap: () => _deleteOverrideRecording(resettablePath),
+                      child: const CircleAvatar(
+                        radius: 36,
+                        backgroundColor: AppBrandColors.goldDark,
+                        child: Icon(Icons.delete_outline,
+                            color: Colors.white, size: 32),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(lang == 'es' ? "BORRAR" : "DELETE"),
+                  ],
+                ),
             ],
           ),
           const SizedBox(height: 32),
           FilledButton(
-            onPressed: () => Navigator.pop(context), 
+            onPressed: () => Navigator.pop(context),
             child: Text(lang == 'es' ? 'Listo' : 'Done'),
           ),
         ],
