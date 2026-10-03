@@ -66,21 +66,44 @@ class UserProfile {
 class VoicePack {
   final String id;
   final String name;
+  final String languageCode;
+  final String languageName;
+  final String attribution;
   final String ownerId;
   final bool isCustom;
+  final Map<String, String> calloutAssets;
+  final Map<String, String> adLibAssets;
+  final String whistleAsset;
+
   const VoicePack({
     required this.id,
     required this.name,
-    required this.ownerId,
-    required this.isCustom,
+    required this.languageCode,
+    required this.languageName,
+    this.attribution = '',
+    this.ownerId = '',
+    this.isCustom = false,
+    required this.calloutAssets,
+    required this.adLibAssets,
+    required this.whistleAsset,
   });
 
   factory VoicePack.fromMap(String id, Map<String, dynamic> data) {
+    Map<String, String> stringMap(Object? value) => value is Map
+        ? value.map((key, value) => MapEntry(key.toString(), value.toString()))
+        : const {};
+
     return VoicePack(
       id: id,
       name: (data['name'] as String?) ?? 'Untitled',
+      languageCode: (data['languageCode'] as String?) ?? 'en',
+      languageName: (data['languageName'] as String?) ?? 'English',
+      attribution: (data['attribution'] as String?) ?? '',
       ownerId: (data['ownerId'] as String?) ?? '',
       isCustom: (data['isCustom'] as bool?) ?? false,
+      calloutAssets: stringMap(data['callouts']),
+      adLibAssets: stringMap(data['adLibs']),
+      whistleAsset: (data['whistle'] as String?) ?? '',
     );
   }
 }
@@ -350,6 +373,8 @@ const Object _drillConfigUnset = Object();
 
 @immutable
 class DrillConfig {
+  static const defaultVoicePackId = 'default_en';
+
   final int totalDurationSeconds;
   final double minIntervalSeconds;
   final double maxIntervalSeconds;
@@ -360,6 +385,7 @@ class DrillConfig {
   final bool videoEnabled;
   final bool adLibsEnabled;
   final String? activeWorkoutPresetId;
+  final String voicePackId;
 
   const DrillConfig({
     this.totalDurationSeconds = 60,
@@ -372,7 +398,32 @@ class DrillConfig {
     this.videoEnabled = false,
     this.adLibsEnabled = false,
     this.activeWorkoutPresetId,
+    this.voicePackId = defaultVoicePackId,
   });
+
+  /// Creates a detached, deeply immutable copy for one running session.
+  ///
+  /// `DrillConfig` is immutable at the field level, but callers may supply
+  /// mutable sets and maps. Capturing them here prevents later settings edits
+  /// from changing the workout recorded for a completed session.
+  factory DrillConfig.immutableSnapshot(DrillConfig source) {
+    return DrillConfig(
+      totalDurationSeconds: source.totalDurationSeconds,
+      minIntervalSeconds: source.minIntervalSeconds,
+      maxIntervalSeconds: source.maxIntervalSeconds,
+      enabledCalloutIds: Set<String>.unmodifiable(source.enabledCalloutIds),
+      customAudioPaths:
+          Map<String, String>.unmodifiable(source.customAudioPaths),
+      customAdLibAudioPaths:
+          Map<String, String>.unmodifiable(source.customAdLibAudioPaths),
+      calloutOverrideDurations:
+          Map<String, int>.unmodifiable(source.calloutOverrideDurations),
+      videoEnabled: source.videoEnabled,
+      adLibsEnabled: source.adLibsEnabled,
+      activeWorkoutPresetId: source.activeWorkoutPresetId,
+      voicePackId: source.voicePackId,
+    );
+  }
 
   double get metValue {
     if (maxIntervalSeconds <= 2.0) return 11.5;
@@ -391,6 +442,7 @@ class DrillConfig {
     bool? videoEnabled,
     bool? adLibsEnabled,
     Object? activeWorkoutPresetId = _drillConfigUnset,
+    String? voicePackId,
   }) {
     return DrillConfig(
       totalDurationSeconds: totalDurationSeconds ?? this.totalDurationSeconds,
@@ -407,6 +459,7 @@ class DrillConfig {
       activeWorkoutPresetId: identical(activeWorkoutPresetId, _drillConfigUnset)
           ? this.activeWorkoutPresetId
           : activeWorkoutPresetId as String?,
+      voicePackId: voicePackId ?? this.voicePackId,
     );
   }
 
@@ -422,6 +475,7 @@ class DrillConfig {
       'videoEnabled': videoEnabled,
       'adLibsEnabled': adLibsEnabled,
       'activeWorkoutPresetId': activeWorkoutPresetId,
+      'voicePackId': voicePackId,
     };
   }
 
@@ -467,6 +521,8 @@ class DrillConfig {
       videoEnabled: map['videoEnabled'] ?? false,
       adLibsEnabled: map['adLibsEnabled'] ?? false,
       activeWorkoutPresetId: map['activeWorkoutPresetId'] as String?,
+      voicePackId:
+          map['voicePackId'] as String? ?? DrillConfig.defaultVoicePackId,
     );
   }
 

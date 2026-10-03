@@ -277,34 +277,41 @@ class HomeCalloutTile extends ConsumerWidget {
   ) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       builder: (ctx) {
-        return Container(
-          padding: const EdgeInsets.all(20),
-          height: 200,
-          child: Column(
-            children: [
-              const Text(
-                'Select Duration',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        return SafeArea(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Select Duration',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  ),
+                  const SizedBox(height: 20),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [5, 15, 30, 45, 60].map((val) {
+                      final isSelected = val == current;
+                      return ChoiceChip(
+                        label: Text('${val}s'),
+                        selected: isSelected,
+                        onSelected: (_) {
+                          ref
+                              .read(drillConfigProvider.notifier)
+                              .setCalloutDuration(id, val);
+                          Navigator.pop(ctx);
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ],
               ),
-              const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [5, 15, 30, 45, 60].map((val) {
-                  final isSelected = val == current;
-                  return ChoiceChip(
-                    label: Text('${val}s'),
-                    selected: isSelected,
-                    onSelected: (_) {
-                      ref
-                          .read(drillConfigProvider.notifier)
-                          .setCalloutDuration(id, val);
-                      Navigator.pop(ctx);
-                    },
-                  );
-                }).toList(),
-              ),
-            ],
+            ),
           ),
         );
       },

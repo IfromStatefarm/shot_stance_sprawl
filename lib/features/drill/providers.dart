@@ -4,14 +4,20 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../billing/pro_purchase.dart';
 import '../badges/badge_progress_provider.dart';
 import '../../data/repositories.dart';
+import 'data/default_callouts.dart';
+import 'data/drill_settings_repository.dart';
+import 'languages.dart';
 import 'models.dart';
 import 'drill_engine.dart';
 import 'workout_presets.dart';
+import 'voice_packs.dart';
 
 export 'models.dart';
+export 'languages.dart';
 export 'drill_engine.dart';
 export 'training_progress_provider.dart';
 export 'workout_presets.dart';
+export 'voice_packs.dart';
 export '../badges/badge_progress_provider.dart';
 export '../billing/pro_purchase.dart';
 
@@ -31,20 +37,21 @@ final languageProvider = NotifierProvider<LanguageNotifier, String>(() {
 });
 
 class LanguageNotifier extends Notifier<String> {
-  static const _keyLanguage = 'language_code';
-
   @override
   String build() {
     _load();
     return 'en';
   }
 
+  Future<LanguageRepository> _repository() async {
+    return LanguageRepository(await ref.read(sharedPrefsProvider.future));
+  }
+
   Future<void> _load() async {
     try {
-      final prefs = await ref.read(sharedPrefsProvider.future);
-      final saved = prefs.getString(_keyLanguage);
-      if (saved == 'en' || saved == 'es') {
-        state = saved!;
+      final saved = (await _repository()).loadLanguage();
+      if (saved != null && isSupportedAppLanguage(saved)) {
+        state = saved;
       }
     } catch (e) {
       debugPrint('Error loading language: $e');
@@ -52,13 +59,12 @@ class LanguageNotifier extends Notifier<String> {
   }
 
   Future<void> setLanguage(String languageCode) async {
-    if (languageCode != 'en' && languageCode != 'es') {
+    if (!isSupportedAppLanguage(languageCode)) {
       return;
     }
 
     state = languageCode;
-    final prefs = await ref.read(sharedPrefsProvider.future);
-    await prefs.setString(_keyLanguage, languageCode);
+    await (await _repository()).saveLanguage(languageCode);
   }
 }
 
@@ -73,18 +79,21 @@ final calloutButtonStyleProvider =
 });
 
 class CalloutButtonStyleNotifier extends Notifier<CalloutButtonStyle> {
-  static const _keyCalloutButtonStyle = 'callout_button_style';
-
   @override
   CalloutButtonStyle build() {
     _load();
     return CalloutButtonStyle.modern;
   }
 
+  Future<CalloutButtonStyleRepository> _repository() async {
+    return CalloutButtonStyleRepository(
+      await ref.read(sharedPrefsProvider.future),
+    );
+  }
+
   Future<void> _load() async {
     try {
-      final prefs = await ref.read(sharedPrefsProvider.future);
-      final saved = prefs.getString(_keyCalloutButtonStyle);
+      final saved = (await _repository()).loadStyleName();
       if (saved == CalloutButtonStyle.classic.name) {
         state = CalloutButtonStyle.classic;
       } else if (saved == CalloutButtonStyle.modern.name) {
@@ -97,8 +106,7 @@ class CalloutButtonStyleNotifier extends Notifier<CalloutButtonStyle> {
 
   Future<void> setStyle(CalloutButtonStyle style) async {
     state = style;
-    final prefs = await ref.read(sharedPrefsProvider.future);
-    await prefs.setString(_keyCalloutButtonStyle, style.name);
+    await (await _repository()).saveStyleName(style.name);
   }
 }
 
@@ -115,14 +123,16 @@ final isProProvider = Provider<bool>((ref) {
   return ref.watch(proPurchaseProvider.select((state) => state.isPro));
 });
 
+final voicePacksProvider = FutureProvider<List<VoicePack>>((ref) {
+  return const VoicePackCatalog().load();
+});
+
 final drillConfigProvider =
     NotifierProvider<DrillConfigNotifier, DrillConfig>(() {
   return DrillConfigNotifier();
 });
 
 class DrillConfigNotifier extends Notifier<DrillConfig> {
-  static const _keyConfig = 'drill_config_v1';
-
   @override
   DrillConfig build() {
     _load();
@@ -135,22 +145,33 @@ class DrillConfigNotifier extends Notifier<DrillConfig> {
     );
   }
 
+  Future<DrillConfigRepository> _repository() async {
+    return DrillConfigRepository(await ref.read(sharedPrefsProvider.future));
+  }
+
   Future<void> _load() async {
     try {
-      final prefs = await ref.read(sharedPrefsProvider.future);
-      final jsonString = prefs.getString(_keyConfig);
-
-      if (jsonString != null) {
-        state = DrillConfig.fromJson(jsonString);
-      }
+      final config = (await _repository()).loadConfig();
+      if (config != null) state = config;
     } catch (e) {
       debugPrint("Error loading drill config: $e");
     }
   }
 
   Future<void> _save() async {
-    final prefs = await ref.read(sharedPrefsProvider.future);
-    await prefs.setString(_keyConfig, state.toJson());
+    await (await _repository()).saveConfig(state);
+  }
+
+  void applySharedWorkout(DrillConfig workout) {
+    state = DrillConfig.immutableSnapshot(
+      workout.copyWith(
+        customAudioPaths: state.customAudioPaths,
+        customAdLibAudioPaths: state.customAdLibAudioPaths,
+        videoEnabled: state.videoEnabled,
+        voicePackId: state.voicePackId,
+      ),
+    );
+    _save();
   }
 
   void setCalloutDuration(String id, int duration) {
@@ -243,6 +264,11 @@ class DrillConfigNotifier extends Notifier<DrillConfig> {
     _save();
   }
 
+  void setVoicePack(String voicePackId) {
+    state = state.copyWith(voicePackId: voicePackId);
+    _save();
+  }
+
   void updateCalloutAudio(String id, String path) {
     final paths = Map<String, String>.from(state.customAudioPaths);
     paths[id] = path;
@@ -278,54 +304,38 @@ final userProfileProvider =
 });
 
 class UserProfileNotifier extends Notifier<UserProfile> {
-  static const _keyWeight = 'user_weight';
-  static const _keyTeam = 'user_team';
-  static const _keyAge = 'user_age';
-  static const _keyImage = 'user_profile_image';
-
   @override
   UserProfile build() {
     _loadPersistence();
     return const UserProfile(id: 'local_user', weightLbs: 150.0);
   }
 
-  Future<void> _loadPersistence() async {
-    final prefs = await ref.read(sharedPrefsProvider.future);
-    final savedWeight = prefs.getDouble(_keyWeight) ?? 150.0;
-    final savedTeam = prefs.getString(_keyTeam);
-    final savedAge = prefs.getInt(_keyAge) ?? 18;
-    final savedImage = prefs.getString(_keyImage);
+  Future<UserProfileRepository> _repository() async {
+    return UserProfileRepository(await ref.read(sharedPrefsProvider.future));
+  }
 
-    state = state.copyWith(
-      weightLbs: savedWeight,
-      teamName: savedTeam,
-      age: savedAge,
-      profileImageUrl: savedImage,
-    );
+  Future<void> _loadPersistence() async {
+    state = (await _repository()).loadProfile(fallback: state);
   }
 
   Future<void> updateWeight(double newWeight) async {
     state = state.copyWith(weightLbs: newWeight);
-    final prefs = await ref.read(sharedPrefsProvider.future);
-    await prefs.setDouble(_keyWeight, newWeight);
+    await (await _repository()).saveWeight(newWeight);
   }
 
   Future<void> updateTeam(String teamName) async {
     state = state.copyWith(teamName: teamName);
-    final prefs = await ref.read(sharedPrefsProvider.future);
-    await prefs.setString(_keyTeam, teamName);
+    await (await _repository()).saveTeam(teamName);
   }
 
   Future<void> updateAge(int newAge) async {
     state = state.copyWith(age: newAge);
-    final prefs = await ref.read(sharedPrefsProvider.future);
-    await prefs.setInt(_keyAge, newAge);
+    await (await _repository()).saveAge(newAge);
   }
 
   Future<void> updateProfileImage(String path) async {
     state = state.copyWith(profileImageUrl: path);
-    final prefs = await ref.read(sharedPrefsProvider.future);
-    await prefs.setString(_keyImage, path);
+    await (await _repository()).saveProfileImage(path);
   }
 }
 
@@ -340,79 +350,6 @@ final calloutsProvider =
 });
 
 class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
-  final List<Callout> _defaults = [
-    const Callout(
-        id: 'shot',
-        nameEn: 'Shot',
-        nameEs: 'Tiro',
-        type: 'Movement',
-        audioAssetAlias: 'Shot'),
-    const Callout(
-        id: 'sprawl',
-        nameEn: 'Sprawl',
-        nameEs: 'Sprawl',
-        type: 'Movement',
-        audioAssetAlias: 'Sprawl'),
-    const Callout(
-        id: 'stance',
-        nameEn: 'Stance',
-        nameEs: 'Postura',
-        type: 'Duration',
-        defaultDurationSeconds: 15,
-        audioAssetAlias: 'Stance'),
-    const Callout(
-        id: 'circle',
-        nameEn: 'Circle/Spin',
-        nameEs: 'Círculo/Giro',
-        type: 'Movement',
-        audioAssetAlias: 'Circle'),
-    const Callout(
-        id: 'down_block',
-        nameEn: 'Down Block',
-        nameEs: 'Bloqueo Abajo',
-        type: 'Movement',
-        audioAssetAlias: 'Down_Block'),
-    const Callout(
-        id: 'fake',
-        nameEn: 'Fake',
-        nameEs: 'Finta',
-        type: 'Movement',
-        audioAssetAlias: 'Fake'),
-    const Callout(
-        id: 'level_change',
-        nameEn: 'Level Change',
-        nameEs: 'Cambio de Nivel',
-        type: 'Movement',
-        audioAssetAlias: 'Level_Change'),
-    const Callout(
-        id: 'snap_down',
-        nameEn: 'Snap Down',
-        nameEs: 'Jalón',
-        type: 'Movement',
-        audioAssetAlias: 'Snap_Down'),
-    const Callout(
-        id: 'high_knees',
-        nameEn: 'High Knees',
-        nameEs: 'Rodillas Altas',
-        type: 'Duration',
-        defaultDurationSeconds: 15,
-        audioAssetAlias: 'High_Knees'),
-    const Callout(
-        id: 'foot_fire',
-        nameEn: 'Foot Fire',
-        nameEs: 'Fuego Pies',
-        type: 'Duration',
-        defaultDurationSeconds: 5,
-        audioAssetAlias: 'Foot_Fire'),
-    const Callout(
-        id: 'hand_fight',
-        nameEn: 'Hand Fight',
-        nameEs: 'Manos',
-        type: 'Duration',
-        defaultDurationSeconds: 15,
-        audioAssetAlias: 'Hand_Fight'),
-  ];
-
   @override
   Future<List<Callout>> build() async {
     final prefs = await ref.watch(sharedPrefsProvider.future);
@@ -421,11 +358,11 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
     final repo = LocalCalloutRepository(prefs);
     final customCallouts = repo.getCustomCallouts();
 
-    return [..._defaults, ...customCallouts];
+    return [...defaultCallouts, ...customCallouts];
   }
 
   Future<void> addCustomCallout(Callout newCallout) async {
-    final currentList = state.value ?? _defaults;
+    final currentList = state.value ?? defaultCallouts;
     final nextList = [...currentList, newCallout];
     state = AsyncValue.data(nextList);
     await _saveToDisk();
@@ -436,14 +373,14 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
   }
 
   Future<void> deleteCallout(String id) async {
-    final currentList = state.value ?? _defaults;
+    final currentList = state.value ?? defaultCallouts;
     final updatedList = currentList.where((c) => c.id != id).toList();
     state = AsyncValue.data(updatedList);
     await _saveToDisk();
   }
 
   Future<void> updateCalloutName(String id, String newName) async {
-    final currentList = state.value ?? _defaults;
+    final currentList = state.value ?? defaultCallouts;
     final updatedList = currentList.map((c) {
       if (c.id == id && c.isCustom) {
         return c.copyWith(nameEn: newName, nameEs: newName);

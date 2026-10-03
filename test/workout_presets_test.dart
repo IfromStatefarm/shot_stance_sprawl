@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shot_stance_sprawl/features/drill/providers.dart';
+import 'package:shot_stance_sprawl/features/social/social.dart';
 
 void main() {
   test('preset timed callout duration ranges resolve inclusively', () {
@@ -55,6 +56,35 @@ void main() {
     expect(defaultOvertimeWorkoutPreset.id, 'overtime_sudden_victory');
     expect(defaultOvertimeWorkoutPreset.recommendedDurationSeconds, 180);
     expect(defaultOvertimeWorkoutPreset.recommendedDifficulty, 9);
+  });
+
+  test('preset sharing copy uses neutral workout language', () {
+    final preset = allWorkoutPresets.first;
+    final english = workoutSharingText(preset, isEs: false);
+    final spanish = workoutSharingText(preset, isEs: true);
+
+    expect(english, contains('Snap & Go Workout'));
+    expect(english.toLowerCase(), isNot(contains('assignment')));
+    expect(spanish.toLowerCase(), isNot(contains('assignment')));
+    expect(workoutShareCode(preset), startsWith('SG-'));
+  });
+
+  test('daily mission sharing freezes the recommended preset configuration',
+      () {
+    final preset = allWorkoutPresets.first;
+    final snapshot = workoutSnapshotForDailyMission(
+      preset,
+      random: const _FixedRandom(0),
+    );
+
+    expect(snapshot.presetId, preset.id);
+    expect(snapshot.durationSeconds, preset.recommendedDurationSeconds);
+    expect(snapshot.difficulty, preset.recommendedDifficulty);
+    expect(snapshot.enabledCalloutIds, preset.calloutIds);
+    expect(
+      workoutSourceKeyForDailyMission(preset, DateTime(2026, 8, 10, 23, 59)),
+      'mission:2026-08-10:${preset.id}',
+    );
   });
 
   test('applying a free preset can disable recording without shortening it',

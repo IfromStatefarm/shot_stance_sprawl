@@ -1,0 +1,8 @@
+# Copy this file to the private path below; never add the populated file to Git:
+#   Windows: %USERPROFILE%/.gradle/shot_stance_sprawl_upload.properties
+#   macOS/Linux: ~/.gradle/shot_stance_sprawl_upload.properties
+# Use forward slashes in storeFile, including on Windows.
+storeFile=C:/absolute/path/to/shot-stance-sprawl-upload.jks
+storePassword=replace-with-a-strong-secret
+keyAlias=upload
+keyPassword=replace-with-a-strong-secret

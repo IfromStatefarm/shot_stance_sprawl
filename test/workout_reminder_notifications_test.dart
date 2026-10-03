@@ -54,4 +54,60 @@ void main() {
     expect(copy.body, contains('Tournament prep'));
     expect(copy.body, contains('Max intensity'));
   });
+
+  test('friend workout notification IDs are stable per share', () {
+    expect(
+      sharedWorkoutNotificationId('share-a'),
+      sharedWorkoutNotificationId('share-a'),
+    );
+    expect(
+      sharedWorkoutNotificationId('share-a'),
+      isNot(sharedWorkoutNotificationId('share-b')),
+    );
+  });
+
+  test('friend workout reminder uses a ten-minute lead when possible', () {
+    final now = DateTime(2026, 8, 11, 17);
+    expect(
+      sharedWorkoutReminderAt(
+        DateTime(2026, 8, 11, 18),
+        now: now,
+      ),
+      DateTime(2026, 8, 11, 17, 50),
+    );
+    expect(
+      sharedWorkoutReminderAt(
+        DateTime(2026, 8, 11, 17, 5),
+        now: now,
+      ),
+      DateTime(2026, 8, 11, 17, 5),
+    );
+  });
+
+  test('friend workout reminder identifies the workout and sender', () {
+    final copy = sharedWorkoutReminderCopy(
+      workoutTitle: 'Shot chain',
+      senderName: 'Jordan',
+      isEs: false,
+    );
+
+    expect(copy.title, 'Your workout starts soon');
+    expect(copy.body, contains('Shot chain'));
+    expect(copy.body, contains('Jordan'));
+  });
+
+  test('friend reminder taps carry a view-only payload', () {
+    expect(
+      sharedWorkoutNotificationPayload('share-a'),
+      'shared-workout:view:share-a',
+    );
+    expect(
+      sharedWorkoutIdFromNotificationPayload(
+        sharedWorkoutNotificationPayload('share-a'),
+      ),
+      'share-a',
+    );
+    expect(
+        sharedWorkoutIdFromNotificationPayload('workout-reminder:1'), isNull);
+  });
 }

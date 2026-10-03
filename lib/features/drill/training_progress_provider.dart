@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../badges/badge_progress_provider.dart';
+import 'data/training_progress_repository.dart';
 import 'models.dart';
 
 final trainingProgressProvider =
@@ -11,23 +12,25 @@ final trainingProgressProvider =
 });
 
 class TrainingProgressNotifier extends Notifier<TrainingProgress> {
-  static const _keyTrainingProgress = 'training_progress_v1';
-
   @override
   TrainingProgress build() {
     _load();
     return TrainingProgress.initial();
   }
 
+  Future<TrainingProgressRepository> _repository() async {
+    return TrainingProgressRepository(await SharedPreferences.getInstance());
+  }
+
   Future<void> _load() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final jsonString = prefs.getString(_keyTrainingProgress);
+      final repository = await _repository();
+      final progress = repository.loadProgress();
 
-      if (jsonString != null) {
-        state = TrainingProgress.fromJson(jsonString);
+      if (progress != null) {
+        state = progress;
       } else {
-        await prefs.setString(_keyTrainingProgress, state.toJson());
+        await repository.saveProgress(state);
       }
     } catch (e) {
       debugPrint('Error loading training progress: $e');
@@ -35,8 +38,7 @@ class TrainingProgressNotifier extends Notifier<TrainingProgress> {
   }
 
   Future<void> _save() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyTrainingProgress, state.toJson());
+    await (await _repository()).saveProgress(state);
   }
 
   Future<void> addSession({

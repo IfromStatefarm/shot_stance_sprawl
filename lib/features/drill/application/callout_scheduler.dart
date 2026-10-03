@@ -88,6 +88,7 @@ class CalloutScheduler {
       config.minIntervalSeconds,
       config.maxIntervalSeconds,
       config.adLibsEnabled,
+      config.voicePackId,
       enabledIds.join(','),
       customPaths.map((entry) => '${entry.key}:${entry.value}').join('|'),
       selectedAudio,

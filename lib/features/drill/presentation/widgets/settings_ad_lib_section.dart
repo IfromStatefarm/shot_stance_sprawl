@@ -1,15 +1,10 @@
-import 'dart:async';
-import 'dart:io';
-
-import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:record/record.dart';
 
 import '../../../../app_theme.dart';
 import '../../ad_libs.dart';
 import '../../providers.dart';
+import '../../services/shared_audio_recording_service.dart';
 
 class SettingsAdLibSlotsManager extends ConsumerWidget {
   final bool isPro;
@@ -142,38 +137,30 @@ class AdLibRecordingSheet extends ConsumerStatefulWidget {
 }
 
 class _AdLibRecordingSheetState extends ConsumerState<AdLibRecordingSheet> {
-  final _recorder = AudioRecorder();
-  final _player = AudioPlayer();
+  final _audio = SharedAudioRecordingService();
   bool _isRecording = false;
   String? _recordedPath;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_player.setPlayerMode(PlayerMode.mediaPlayer));
-    unawaited(_player.setReleaseMode(ReleaseMode.stop));
+    _audio.configurePreviewPlayer();
   }
 
   @override
   void dispose() {
-    _recorder.dispose();
-    _player.dispose();
+    _audio.dispose();
     super.dispose();
   }
 
   Future<void> _startRecording() async {
     if (!widget.allowCustomization) return;
-    if (!await _recorder.hasPermission()) return;
+    if (!await _audio.hasPermission()) return;
 
-    await _player.stop();
-    final dir = await getApplicationDocumentsDirectory();
-    final path =
-        '${dir.path}/${widget.slot.id}_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    await _audio.stopPlayer();
+    final path = await _audio.timestampedDocumentAudioPath(widget.slot.id);
 
-    await _recorder.start(
-      const RecordConfig(encoder: AudioEncoder.aacLc),
-      path: path,
-    );
+    await _audio.startAacRecording(path);
 
     if (mounted) {
       setState(() => _isRecording = true);
@@ -181,7 +168,7 @@ class _AdLibRecordingSheetState extends ConsumerState<AdLibRecordingSheet> {
   }
 
   Future<void> _stopRecording() async {
-    final path = await _recorder.stop();
+    final path = await _audio.stopRecording();
     if (!mounted) return;
 
     setState(() {
@@ -198,12 +185,7 @@ class _AdLibRecordingSheetState extends ConsumerState<AdLibRecordingSheet> {
 
   Future<void> _playPreview(String path) async {
     try {
-      await _player.stop();
-      if (path.startsWith('assets/')) {
-        await _player.play(AssetSource(path.replaceFirst('assets/', '')));
-      } else {
-        await _player.play(DeviceFileSource(path));
-      }
+      await _audio.playPreviewPath(path);
     } catch (e) {
       debugPrint('Could not play ad lib preview: $e');
     }
@@ -211,7 +193,7 @@ class _AdLibRecordingSheetState extends ConsumerState<AdLibRecordingSheet> {
 
   Future<void> _deleteCustomAudio(String path) async {
     if (!widget.allowCustomization) return;
-    await _player.stop();
+    await _audio.stopPlayer();
     ref.read(drillConfigProvider.notifier).removeAdLibAudio(widget.slot.id);
 
     if (mounted) {
@@ -221,14 +203,10 @@ class _AdLibRecordingSheetState extends ConsumerState<AdLibRecordingSheet> {
       });
     }
 
-    try {
-      final file = File(path);
-      if (await file.exists()) {
-        await file.delete();
-      }
-    } catch (e) {
-      debugPrint('Could not delete ad lib audio: $e');
-    }
+    await _audio.deleteFileIfExists(
+      path,
+      debugLabel: 'Could not delete ad lib audio',
+    );
   }
 
   @override
@@ -237,7 +215,17 @@ class _AdLibRecordingSheetState extends ConsumerState<AdLibRecordingSheet> {
     final config = ref.watch(drillConfigProvider);
     final customPath =
         _recordedPath ?? config.customAdLibAudioPaths[widget.slot.id];
-    final activePath = customPath ?? widget.slot.defaultAssetPath;
+    final packPath = ref.watch(voicePacksProvider).whenOrNull(
+      data: (packs) {
+        for (final pack in packs) {
+          if (pack.id == config.voicePackId) {
+            return pack.adLibAssets[widget.slot.id];
+          }
+        }
+        return null;
+      },
+    );
+    final activePath = customPath ?? packPath ?? widget.slot.defaultAssetPath;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),

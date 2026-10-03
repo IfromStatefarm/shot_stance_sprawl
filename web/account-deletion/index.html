@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Request deletion of a Snap &amp; Go account and its associated data.">
+  <meta name="robots" content="index,follow">
+  <title>Delete your Snap &amp; Go account</title>
+  <link rel="icon" type="image/png" href="../favicon.png">
+  <style>
+    :root {
+      color-scheme: dark;
+      --background: #090000;
+      --surface: #171010;
+      --surface-raised: #211717;
+      --text: #fff9f7;
+      --muted: #d7c8c5;
+      --accent: #e3223c;
+      --accent-hover: #ff3a53;
+      --border: #493436;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      background:
+        radial-gradient(circle at 85% 10%, rgba(184, 0, 23, 0.24), transparent 30rem),
+        var(--background);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+
+    main {
+      width: min(46rem, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 4rem 0;
+    }
+
+    .eyebrow {
+      margin: 0 0 0.5rem;
+      color: #ff8b9a;
+      font-size: 0.8rem;
+      font-weight: 800;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
+    h1, h2 { line-height: 1.15; }
+    h1 { margin: 0; font-size: clamp(2.1rem, 7vw, 4rem); }
+    h2 { margin-top: 0; font-size: 1.25rem; }
+    p { color: var(--muted); }
+
+    .lede {
+      max-width: 40rem;
+      margin: 1rem 0 2rem;
+      font-size: 1.1rem;
+    }
+
+    .request-card, section {
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      background: rgba(23, 16, 16, 0.92);
+      box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.22);
+    }
+
+    .request-card { padding: clamp(1.25rem, 4vw, 2rem); }
+
+    .button {
+      display: inline-block;
+      margin: 0.5rem 0 0.75rem;
+      padding: 0.85rem 1.15rem;
+      border-radius: 0.65rem;
+      background: var(--accent);
+      color: white;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .button:hover, .button:focus-visible { background: var(--accent-hover); }
+
+    .fallback { margin-bottom: 0; font-size: 0.92rem; }
+
+    a { color: #ff9aa7; }
+    a:focus-visible { outline: 3px solid white; outline-offset: 3px; }
+
+    .steps {
+      display: grid;
+      gap: 1rem;
+      margin: 1.25rem 0;
+    }
+
+    section { padding: 1.4rem; }
+    section p:last-child, section ul:last-child { margin-bottom: 0; }
+    ul { padding-left: 1.25rem; color: var(--muted); }
+    li + li { margin-top: 0.4rem; }
+    strong { color: var(--text); }
+
+    footer {
+      margin-top: 2rem;
+      color: #aa9997;
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">Keep Kids Wrestling</p>
+    <h1>Delete your Snap &amp; Go account</h1>
+    <p class="lede">
+      You can request permanent deletion here even if you no longer have the app.
+      We will verify that you own the account before deleting it and its associated data.
+    </p>
+
+    <div class="request-card">
+      <h2>Send a deletion request</h2>
+      <p>
+        If possible, email us from the address connected to your Snap &amp; Go account.
+        Include your username and sign-in method so we can locate and verify the account.
+        Never send us your password or a verification code.
+      </p>
+      <a class="button" href="mailto:info@keepkidswrestling.com?subject=Snap%20%26%20Go%20account%20deletion%20request&amp;body=Please%20delete%20my%20Snap%20%26%20Go%20account%20and%20associated%20data.%0A%0AUsername%3A%20%0ASign-in%20email%20or%20phone%3A%20%0ASign-in%20method%3A%20%0A%0AI%20understand%20that%20this%20request%20is%20permanent.">
+        Request deletion by email
+      </a>
+      <p class="fallback">
+        If the button does not open your email app, write to
+        <a href="mailto:info@keepkidswrestling.com">info@keepkidswrestling.com</a>
+        with the subject “Snap &amp; Go account deletion request.”
+      </p>
+    </div>
+
+    <div class="steps">
+      <section>
+        <h2>You can also delete in the app</h2>
+        <p>
+          Sign in, then open <strong>Settings → Account → Delete account</strong>.
+          In-app deletion requires a recent sign-in and starts immediately after confirmation.
+        </p>
+      </section>
+
+      <section>
+        <h2>What deletion covers</h2>
+        <p>After verification, we delete the account and associated developer-controlled data, including:</p>
+        <ul>
+          <li>authentication, profile, username, device, and contact-lookup records;</li>
+          <li>cloud progress, team membership or owned team, photos, friendships, and workout shares;</li>
+          <li>social events, statistics, qualification records, crew progress, and user reports; and</li>
+          <li>developer-held subscription and purchase-verification records.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Subscriptions and data kept elsewhere</h2>
+        <p>
+          <strong>Deleting your account does not cancel an Apple App Store or Google Play subscription.</strong>
+          Cancel an active subscription in your store account to prevent future billing. You can request
+          account deletion before or after canceling.
+        </p>
+        <p>
+          Local recordings, exported files, and copies saved to other apps remain where you saved them.
+          Delete those copies separately. Apple, Google, and other service providers may retain their own
+          transaction or security records under their policies.
+        </p>
+      </section>
+
+      <section>
+        <h2>Timing and limited retention</h2>
+        <p>
+          We process verified requests within a reasonably quick period. Deletion from Firebase live and
+          backup systems may take up to 180 days. We may retain limited records longer when required by law,
+          needed to resolve a dispute, or necessary to prevent fraud or abuse.
+        </p>
+        <p>For more detail, read the <a href="https://keepkidswrestling.com/Snap-and-go/privacy">Snap &amp; Go Privacy Policy</a>.</p>
+      </section>
+    </div>
+
+    <footer>Snap &amp; Go by Keep Kids Wrestling · Last updated September 24, 2026</footer>
+  </main>
+</body>
+</html>

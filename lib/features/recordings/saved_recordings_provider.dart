@@ -3,8 +3,11 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../core/local_file_storage.dart';
+
+part 'data/saved_recordings_repository.dart';
 
 final savedRecordingsProvider =
     AsyncNotifierProvider<SavedRecordingsNotifier, List<SavedWorkoutVideo>>(
@@ -55,11 +58,13 @@ class SavedWorkoutVideo {
 }
 
 class SavedRecordingsNotifier extends AsyncNotifier<List<SavedWorkoutVideo>> {
-  static const _keySavedRecordings = 'saved_workout_videos_v1';
-
   @override
   Future<List<SavedWorkoutVideo>> build() async {
     return _loadVideos();
+  }
+
+  Future<SavedRecordingsRepository> _repository() async {
+    return SavedRecordingsRepository(await SharedPreferences.getInstance());
   }
 
   Future<SavedWorkoutVideo?> saveWorkoutVideo({
@@ -74,10 +79,12 @@ class SavedRecordingsNotifier extends AsyncNotifier<List<SavedWorkoutVideo>> {
 
     final savedAt = createdAt ?? DateTime.now();
     final id = savedAt.microsecondsSinceEpoch.toString();
-    final destination = await _recordingFileFor(
-      savedAt,
-      userName: userName,
-      calloutsCompleted: calloutsCompleted,
+    final destination = await LocalStoragePaths.nextRecordingFile(
+      SavedWorkoutVideoFileNames.fileName(
+        savedAt: savedAt,
+        userName: userName,
+        calloutsCompleted: calloutsCompleted,
+      ),
     );
     await destination.parent.create(recursive: true);
     await source.copy(destination.path);
@@ -100,14 +107,10 @@ class SavedRecordingsNotifier extends AsyncNotifier<List<SavedWorkoutVideo>> {
     final current = [...(state.value ?? await _loadVideos())];
     final target = current.where((video) => video.id == id).firstOrNull;
     if (target != null) {
-      try {
-        final file = File(target.path);
-        if (await file.exists()) {
-          await file.delete();
-        }
-      } catch (e) {
-        debugPrint('Error deleting saved workout video: $e');
-      }
+      await LocalFileStorage.deleteLocalFileIfExists(
+        target.path,
+        debugLabel: 'Error deleting saved workout video',
+      );
     }
 
     final next = current.where((video) => video.id != id).toList();
@@ -122,29 +125,17 @@ class SavedRecordingsNotifier extends AsyncNotifier<List<SavedWorkoutVideo>> {
 
   Future<List<SavedWorkoutVideo>> _loadVideos() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_keySavedRecordings);
-      if (raw == null) return [];
-
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return [];
-
-      final videos = decoded
-          .whereType<Map>()
-          .map((map) => SavedWorkoutVideo.fromMap(
-                Map<String, dynamic>.from(map),
-              ))
-          .where((video) => video.id.isNotEmpty && video.path.isNotEmpty)
-          .toList();
+      final repository = await _repository();
+      final videos = repository.loadVideos();
       final existing = <SavedWorkoutVideo>[];
       for (final video in videos) {
-        if (await File(video.path).exists()) {
+        if (await LocalFileStorage.localFileExists(video.path)) {
           existing.add(video);
         }
       }
       existing.sort(_newestFirst);
       if (existing.length != videos.length) {
-        await _saveVideos(existing);
+        await repository.saveVideos(existing);
       }
       return existing;
     } catch (e) {
@@ -154,35 +145,7 @@ class SavedRecordingsNotifier extends AsyncNotifier<List<SavedWorkoutVideo>> {
   }
 
   Future<void> _saveVideos(List<SavedWorkoutVideo> videos) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _keySavedRecordings,
-      jsonEncode(videos.map((video) => video.toMap()).toList()),
-    );
-  }
-
-  Future<File> _recordingFileFor(
-    DateTime savedAt, {
-    required String? userName,
-    required int calloutsCompleted,
-  }) async {
-    final docs = await getApplicationDocumentsDirectory();
-    final dir = Directory('${docs.path}${Platform.pathSeparator}recordings');
-    final baseName = SavedWorkoutVideoFileNames.fileName(
-      userName: userName,
-      calloutsCompleted: calloutsCompleted,
-      savedAt: savedAt,
-    );
-    var candidate = File('${dir.path}${Platform.pathSeparator}$baseName');
-    var suffix = 2;
-    while (await candidate.exists()) {
-      candidate = File(
-        '${dir.path}${Platform.pathSeparator}'
-        '${baseName.replaceFirst('.mp4', '_$suffix.mp4')}',
-      );
-      suffix++;
-    }
-    return candidate;
+    await (await _repository()).saveVideos(videos);
   }
 
   static int _newestFirst(SavedWorkoutVideo a, SavedWorkoutVideo b) {

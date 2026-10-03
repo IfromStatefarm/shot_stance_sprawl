@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../../app_theme.dart';
+import '../../../compliance/compliance.dart';
 import '../../workout_presets.dart';
 
-class WorkoutPresetSheet extends StatefulWidget {
+class WorkoutPresetSheet extends ConsumerStatefulWidget {
   final bool isEs;
   final WorkoutPreset dailyMission;
   final void Function(WorkoutPreset preset, {required bool startNow})
@@ -20,10 +22,10 @@ class WorkoutPresetSheet extends StatefulWidget {
   });
 
   @override
-  State<WorkoutPresetSheet> createState() => _WorkoutPresetSheetState();
+  ConsumerState<WorkoutPresetSheet> createState() => _WorkoutPresetSheetState();
 }
 
-class _WorkoutPresetSheetState extends State<WorkoutPresetSheet> {
+class _WorkoutPresetSheetState extends ConsumerState<WorkoutPresetSheet> {
   WorkoutPresetCategory _selectedCategory = WorkoutPresetCategory.quick;
 
   void _selectPreset(WorkoutPreset preset, {required bool startNow}) {
@@ -32,13 +34,16 @@ class _WorkoutPresetSheetState extends State<WorkoutPresetSheet> {
   }
 
   Future<void> _sharePreset(WorkoutPreset preset) async {
+    if (!await requireConnectedFeatureEligibility(context, ref) || !mounted) {
+      return;
+    }
     final box = context.findRenderObject() as RenderBox?;
     final origin =
         box == null ? null : box.localToGlobal(Offset.zero) & box.size;
     await SharePlus.instance.share(
       ShareParams(
-        text: coachAssignmentText(preset, isEs: widget.isEs),
-        subject: 'Snap & Go Coach Assignment',
+        text: workoutSharingText(preset, isEs: widget.isEs),
+        subject: 'Snap & Go Workout',
         sharePositionOrigin: origin,
       ),
     );
@@ -341,7 +346,7 @@ class _DailyMissionPresetCard extends StatelessWidget {
                 ),
               ),
               IconButton(
-                tooltip: isEs ? 'Compartir assignment' : 'Share assignment',
+                tooltip: isEs ? 'Compartir workout' : 'Share workout',
                 onPressed: onShare,
                 icon: const Icon(Icons.ios_share, size: 18),
                 color: AppBrandColors.gold,
@@ -662,7 +667,7 @@ class _WorkoutPresetCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               IconButton(
-                tooltip: isEs ? 'Compartir assignment' : 'Share assignment',
+                tooltip: isEs ? 'Compartir workout' : 'Share workout',
                 visualDensity: VisualDensity.compact,
                 onPressed: onShare,
                 icon: const Icon(Icons.ios_share),

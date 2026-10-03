@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "default": "snap-and-go-dev",
+    "dev": "snap-and-go-dev",
+    "prod": "snap-and-go-prod"
+  }
+}

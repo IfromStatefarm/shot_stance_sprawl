@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app_theme.dart';
 import '../drill/providers.dart';
 import 'onboarding.dart';
+import 'season_schedule.dart';
 
 class OnboardingScreen extends ConsumerStatefulWidget {
   final VoidCallback onFinished;
@@ -20,6 +21,7 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   static const _questions = [
     'What best describes you?',
+    'Which state is your wrestling season in?',
     'What are you training for?',
     'What do you want to improve most?',
     'How hard do you want Snap & Go to push you?',
@@ -28,6 +30,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   int _step = 0;
   OnboardingRole? _role;
+  String? _stateName;
+  String _stateSearch = '';
   OnboardingGoal? _goal;
   OnboardingFocus? _focus;
   OnboardingPushLevel? _pushLevel;
@@ -39,12 +43,14 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       case 0:
         return _role != null;
       case 1:
-        return _goal != null;
+        return _stateName != null;
       case 2:
-        return _focus != null;
+        return _goal != null;
       case 3:
-        return _pushLevel != null;
+        return _focus != null;
       case 4:
+        return _pushLevel != null;
+      case 5:
         return _workoutReminders != null;
       default:
         return false;
@@ -179,6 +185,28 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         ];
       case 1:
         return [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: TextField(
+              decoration: const InputDecoration(
+                labelText: 'Search states',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (query) => setState(() => _stateSearch = query),
+            ),
+          ),
+          for (final stateName in seasonDatesByState.keys)
+            if (stateName.toLowerCase().contains(_stateSearch.toLowerCase()))
+              _ChoiceTile(
+                icon: Icons.location_on_outlined,
+                title: stateName,
+                selected: _stateName == stateName,
+                onTap: () => setState(() => _stateName = stateName),
+              ),
+        ];
+      case 2:
+        return [
           for (final value in OnboardingGoal.values)
             _ChoiceTile(
               icon: _goalIcon(value),
@@ -187,7 +215,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               onTap: () => setState(() => _goal = value),
             ),
         ];
-      case 2:
+      case 3:
         return [
           for (final value in OnboardingFocus.values)
             _ChoiceTile(
@@ -197,7 +225,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               onTap: () => setState(() => _focus = value),
             ),
         ];
-      case 3:
+      case 4:
         return [
           for (final value in OnboardingPushLevel.values)
             _ChoiceTile(
@@ -207,7 +235,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               onTap: () => setState(() => _pushLevel = value),
             ),
         ];
-      case 4:
+      case 5:
         return [
           _ChoiceTile(
             icon: Icons.notifications_active_outlined,
@@ -242,6 +270,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     setState(() => _saving = true);
 
     final profile = OnboardingProfile(
+      stateName: _stateName,
       role: _role!,
       goal: _goal!,
       focus: _focus!,

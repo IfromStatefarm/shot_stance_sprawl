@@ -1,0 +1,315 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function owns(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isServerTime(value) {
+      return value is timestamp && value == request.time;
+    }
+
+    // Accepted friendships are mirrored by trusted Functions into owner-only
+    // access documents. This avoids exposing the friendship graph while still
+    // giving Rules a constant-cost connected-friend check.
+    function isConnectedFriend(uid) {
+      return signedIn() && exists(
+        /databases/$(database)/documents/users/$(uid)/friendAccess/$(request.auth.uid)
+      );
+    }
+
+    function isTeamMember(teamId) {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/teams/$(teamId)) &&
+        get(/databases/$(database)/documents/teams/$(teamId)).data.status == 'active' &&
+        exists(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid));
+    }
+
+    function hasTeamMembership(teamId) {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid));
+    }
+
+    function isTeammate(uid) {
+      let mine = /databases/$(database)/documents/users/$(request.auth.uid)/privateData/team;
+      let theirs = /databases/$(database)/documents/users/$(uid)/privateData/team;
+      return signedIn() && exists(mine) && exists(theirs) &&
+        get(mine).data.teamId == get(theirs).data.teamId &&
+        isTeamMember(get(mine).data.teamId);
+    }
+
+    function validSafetySettings(settings) {
+      return settings is map &&
+        settings.keys().hasOnly([
+          'allowFriendRequests',
+          'allowWorkoutMessages'
+        ]) &&
+        settings.allowFriendRequests is bool &&
+        settings.allowWorkoutMessages is bool;
+    }
+
+    function validUserProfile(data) {
+      // Email and phone fields are deliberately absent from this allowlist.
+      return data.keys().hasOnly([
+        'displayName',
+        'photoUrl',
+        'username',
+        'usernameNormalized',
+        'language',
+        'discoverable',
+        'accountSafety',
+        'unreadSharedWorkoutCount',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.displayName is string &&
+      data.displayName.size() > 0 &&
+      data.displayName.size() <= 80 &&
+      (data.photoUrl == null ||
+        (data.photoUrl is string && data.photoUrl.size() <= 2048)) &&
+      (!data.keys().hasAny(['username']) ||
+        (data.username is string &&
+          data.username.matches('^[a-z0-9_]{3,20}$'))) &&
+      (!data.keys().hasAny(['usernameNormalized']) ||
+        (data.usernameNormalized is string &&
+          data.usernameNormalized.matches('^[a-z0-9_]{3,20}$'))) &&
+      data.language in ['en', 'es'] &&
+      data.discoverable is bool &&
+      validSafetySettings(data.accountSafety) &&
+      data.unreadSharedWorkoutCount is int &&
+      data.unreadSharedWorkoutCount >= 0 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function validSafeProfile(data) {
+      return data.keys().hasOnly([
+        'displayName', 'photoUrl', 'username', 'language'
+      ]) &&
+      data.displayName is string &&
+      data.displayName.size() > 0 &&
+      data.displayName.size() <= 80 &&
+      (data.photoUrl == null ||
+        (data.photoUrl is string && data.photoUrl.size() <= 2048)) &&
+      (!data.keys().hasAny(['username']) ||
+        (data.username is string &&
+          data.username.matches('^[a-z0-9_]{3,20}$'))) &&
+      data.language in ['en', 'es'];
+    }
+
+    function validRecipientStatusTransition() {
+      let before = resource.data.status;
+      let after = request.resource.data.status;
+      return
+        (before == 'sent' && after in ['accepted', 'scheduled', 'declined']) ||
+        (before == 'accepted' && after in ['accepted', 'scheduled', 'declined']) ||
+        (before == 'scheduled' && after in ['accepted', 'scheduled', 'declined']) ||
+        (before == 'started' && after == 'declined');
+    }
+
+    function validRecipientShareUpdate() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let status = request.resource.data.status;
+      return signedIn() &&
+        request.auth.uid == resource.data.recipientUid &&
+        changed.hasOnly(['status', 'scheduledFor']) &&
+        validRecipientStatusTransition() &&
+        (
+          (status == 'scheduled' &&
+            request.resource.data.scheduledFor is timestamp &&
+            request.resource.data.scheduledFor >= request.time - duration.value(5, 'm') &&
+            request.resource.data.scheduledFor <= request.time + duration.value(365, 'd')) ||
+          (status in ['accepted', 'declined'] &&
+            request.resource.data.scheduledFor == null)
+        );
+    }
+
+    // The owner profile contains private settings and counters. Friends never
+    // read this document; they use the safeProfiles projection below.
+    match /users/{uid} {
+      allow get: if owns(uid);
+      allow list: if false;
+      allow create: if owns(uid) && validUserProfile(request.resource.data) &&
+        request.resource.data.unreadSharedWorkoutCount == 0 &&
+        isServerTime(request.resource.data.createdAt) &&
+        isServerTime(request.resource.data.updatedAt);
+      allow update: if owns(uid) && validUserProfile(request.resource.data) &&
+        (request.resource.data.createdAt == resource.data.createdAt ||
+          (!resource.data.keys().hasAny(['createdAt']) &&
+            isServerTime(request.resource.data.createdAt))) &&
+        (request.resource.data.unreadSharedWorkoutCount ==
+            resource.data.unreadSharedWorkoutCount ||
+          (!resource.data.keys().hasAny(['unreadSharedWorkoutCount']) &&
+            request.resource.data.unreadSharedWorkoutCount == 0)) &&
+        isServerTime(request.resource.data.updatedAt) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName',
+          'photoUrl',
+          'language',
+          'discoverable',
+          'accountSafety',
+          'unreadSharedWorkoutCount',
+          'createdAt',
+          'updatedAt'
+        ]);
+      allow delete: if false; // Account cleanup is server-coordinated.
+
+      match /devices/{tokenId} {
+        allow get, list: if owns(uid);
+        allow create, update: if owns(uid) &&
+          request.resource.data.keys().hasOnly([
+            'fcmToken', 'platform', 'lastActiveAt'
+          ]) &&
+          request.resource.data.fcmToken is string &&
+          request.resource.data.fcmToken.size() > 0 &&
+          request.resource.data.fcmToken.size() <= 4096 &&
+          request.resource.data.platform in ['android', 'iOS', 'macOS'] &&
+          isServerTime(request.resource.data.lastActiveAt);
+        allow delete: if owns(uid);
+      }
+
+      match /privateData/account {
+        allow get: if owns(uid);
+        allow list: if false;
+        allow create, update: if owns(uid) &&
+          request.resource.data.keys().hasOnly([
+            'email', 'providers', 'updatedAt'
+          ]) &&
+          (request.resource.data.email == null ||
+            request.resource.data.email is string) &&
+          request.resource.data.providers is list &&
+          isServerTime(request.resource.data.updatedAt);
+        allow delete: if false;
+      }
+
+      match /privateData/localProgress {
+        allow get: if owns(uid);
+        allow list: if false;
+        allow create, update: if owns(uid) &&
+          request.resource.data.keys().hasOnly([
+            'schemaVersion', 'snapshot', 'linkedAt', 'updatedAt'
+          ]) &&
+          request.resource.data.schemaVersion is int &&
+          request.resource.data.snapshot is map &&
+          isServerTime(request.resource.data.linkedAt) &&
+          isServerTime(request.resource.data.updatedAt);
+        allow delete: if false;
+      }
+
+      match /privateData/team {
+        allow get: if owns(uid);
+        allow list, create, update, delete: if false;
+      }
+
+      // Trusted Functions create/delete these documents when a friendship is
+      // accepted or blocked. They are usable by exists() but never client-readable.
+      match /friendAccess/{friendUid} {
+        allow read, write: if false;
+      }
+
+      match /privateData/{otherDocument} {
+        allow read, write: if false;
+      }
+    }
+
+    // This projection contains only fields safe to show to a teammate or
+    // legacy accepted friend.
+    match /safeProfiles/{uid} {
+      allow get: if owns(uid) || isConnectedFriend(uid) || isTeammate(uid);
+      allow list: if false;
+      allow create: if owns(uid) && validSafeProfile(request.resource.data) &&
+        (!request.resource.data.keys().hasAny(['username']) ||
+          request.resource.data.username ==
+            getAfter(/databases/$(database)/documents/users/$(uid)).data.username);
+      allow update: if owns(uid) && validSafeProfile(request.resource.data) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName', 'photoUrl', 'language'
+        ]);
+      allow delete: if false;
+    }
+
+    // Username ownership is coordinated transactionally by a callable Function.
+    match /usernames/{username} {
+      allow read, write: if false;
+    }
+
+    match /friendships/{pairId} {
+      allow get, list: if signedIn() &&
+        request.auth.uid in resource.data.userIds;
+      allow create, update, delete: if false;
+    }
+
+    match /teams/{teamId} {
+      allow get: if hasTeamMembership(teamId);
+      allow list, create, update, delete: if false;
+
+      match /members/{memberUid} {
+        allow get, list: if isTeamMember(teamId);
+        allow create, update, delete: if false;
+      }
+
+      match /private/access {
+        allow get: if signedIn() &&
+          exists(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid)).data.role == 'owner' &&
+          get(/databases/$(database)/documents/teams/$(teamId)).data.status == 'active';
+        allow list, create, update, delete: if false;
+      }
+    }
+
+    match /teamCodes/{codeHash} {
+      allow read, write: if false;
+    }
+
+    match /workoutShares/{shareId} {
+      allow get, list: if signedIn() &&
+        (request.auth.uid == resource.data.senderUid ||
+          request.auth.uid == resource.data.recipientUid);
+      // Non-authoritative recipient choices may change only status/schedule.
+      // Started/completed states and every lifecycle timestamp remain callable-
+      // Function-only so streaks and notifications cannot be forged.
+      allow update: if validRecipientShareUpdate();
+      allow create, delete: if false;
+    }
+
+    match /socialEvents/{eventId} {
+      allow get, list: if signedIn() &&
+        request.auth.uid in resource.data.userIds;
+      allow create, update, delete: if false;
+    }
+
+    match /socialStats/{uid} {
+      allow get: if owns(uid);
+      allow list, create, update, delete: if false;
+    }
+
+    // Trusted Functions own all anti-spam and streak qualification records.
+    match /socialQualifications/{qualificationId} {
+      allow read, write: if false;
+    }
+
+    match /socialPartnerWeeks/{pairWeekId} {
+      allow read, write: if false;
+    }
+
+    match /socialCrewProgress/{crewProgressId} {
+      allow read, write: if false;
+    }
+
+    // Reports contain moderation data and are only created/read by trusted
+    // callable Functions and administrators.
+    match /userReports/{reportId} {
+      allow read, write: if false;
+    }
+
+    // Nothing is accessible unless a rule above grants it explicitly.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

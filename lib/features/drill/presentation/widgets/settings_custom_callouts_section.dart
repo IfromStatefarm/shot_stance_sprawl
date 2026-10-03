@@ -1,13 +1,9 @@
-import 'dart:async';
-
-import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:record/record.dart';
 
 import '../../../../app_theme.dart';
 import '../../providers.dart';
+import '../../services/shared_audio_recording_service.dart';
 
 class SettingsCustomCalloutsManager extends ConsumerWidget {
   const SettingsCustomCalloutsManager({super.key});
@@ -126,8 +122,7 @@ class AddCalloutSheet extends ConsumerStatefulWidget {
 
 class _AddCalloutSheetState extends ConsumerState<AddCalloutSheet> {
   final TextEditingController _nameController = TextEditingController();
-  final AudioRecorder _recorder = AudioRecorder();
-  final AudioPlayer _player = AudioPlayer();
+  final SharedAudioRecordingService _audio = SharedAudioRecordingService();
 
   bool _isRecording = false;
   String? _tempPath;
@@ -135,26 +130,23 @@ class _AddCalloutSheetState extends ConsumerState<AddCalloutSheet> {
 
   @override
   void dispose() {
-    _recorder.dispose();
-    _player.dispose();
+    _audio.dispose();
     _nameController.dispose();
     super.dispose();
   }
 
   Future<void> _toggleRecording() async {
     if (_isRecording) {
-      final path = await _recorder.stop();
+      final path = await _audio.stopRecording();
       setState(() {
         _isRecording = false;
         _tempPath = path;
       });
     } else {
-      if (await _recorder.hasPermission()) {
-        final dir = await getApplicationDocumentsDirectory();
-        final path =
-            '${dir.path}/temp_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      if (await _audio.hasPermission()) {
+        final path = await _audio.timestampedDocumentAudioPath('temp');
 
-        await _recorder.start(const RecordConfig(), path: path);
+        await _audio.startDefaultRecording(path);
         setState(() => _isRecording = true);
       }
     }
@@ -254,7 +246,7 @@ class _AddCalloutSheetState extends ConsumerState<AddCalloutSheet> {
                 IconButton(
                   icon: const Icon(Icons.play_arrow,
                       size: 40, color: AppBrandColors.blue),
-                  onPressed: () => _player.play(DeviceFileSource(_tempPath!)),
+                  onPressed: () => _audio.playDeviceFile(_tempPath!),
                 ),
               ]
             ],
@@ -276,4 +268,3 @@ class _AddCalloutSheetState extends ConsumerState<AddCalloutSheet> {
     );
   }
 }
-

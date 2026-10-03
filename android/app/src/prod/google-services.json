@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "560822170142",
+    "project_id": "snap-and-go-prod",
+    "storage_bucket": "snap-and-go-prod.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:560822170142:android:2036b5deb5c1cd70fb340f",
+        "android_client_info": {
+          "package_name": "com.snapandgo.shadowwrestling"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "560822170142-bpvqn4ebp9rnrdgbc2e5tjm0ja7ehqa9.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.snapandgo.shadowwrestling",
+            "certificate_hash": "aebf054a8fbca52043b23175968d0c85c1732124"
+          }
+        },
+        {
+          "client_id": "560822170142-9gt2vo0g92anguf2fb8srqu10kc10bhs.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCwsoH9r3-HiGYcLhQObNAgvW6rURalP2Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "560822170142-9gt2vo0g92anguf2fb8srqu10kc10bhs.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "560822170142-7bd5u75m5haa273rofocui670hb6g20v.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.snapandgo.shadowwrestling"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

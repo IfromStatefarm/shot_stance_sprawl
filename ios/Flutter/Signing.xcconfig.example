@@ -1,0 +1,5 @@
+// Copy this file to Signing.xcconfig and replace the example value with the
+// 10-character Team ID from Apple Developer > Membership details.
+// Signing.xcconfig is intentionally ignored by Git.
+APPLE_DEVELOPMENT_TEAM = ABCDE12345
+CODE_SIGN_STYLE = Automatic

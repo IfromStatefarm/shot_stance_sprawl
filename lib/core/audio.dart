@@ -1,6 +1,7 @@
 import 'package:audioplayers/audioplayers.dart';
 
 abstract class IAudioPlayer {
+  Future<void> initialize();
   Future<void> setAsset(String assetPath);
   Future<void> setDeviceFile(String filePath);
   Future<void> play();
@@ -15,29 +16,19 @@ abstract class AudioFactory {
 }
 
 class RealAudioFactory implements AudioFactory {
+  Future<void> _initializationTail = Future.value();
+
   @override
   IAudioPlayer createPlayer({String? debugLabel}) {
     final player = AudioPlayer();
-    final ready = Future.wait([
-      player.setPlayerMode(PlayerMode.mediaPlayer),
-      player.setReleaseMode(ReleaseMode.stop),
-      player.setAudioContext(
-        AudioContext(
-          iOS: AudioContextIOS(
-            category: AVAudioSessionCategory.playback,
-            options: const {
-              AVAudioSessionOptions.mixWithOthers,
-            },
-          ),
-          android: const AudioContextAndroid(
-            isSpeakerphoneOn: true,
-            audioFocus: AndroidAudioFocus.gainTransientMayDuck,
-            usageType: AndroidUsageType.media,
-            contentType: AndroidContentType.speech,
-          ),
-        ),
-      ),
-    ]);
+    final ready = _initializationTail.then((_) async {
+      await player.setPlayerMode(PlayerMode.mediaPlayer);
+      await player.setReleaseMode(ReleaseMode.stop);
+    });
+    _initializationTail = ready.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
     return _AudioplayersWrapper(player, ready);
   }
 }
@@ -46,6 +37,9 @@ class _AudioplayersWrapper implements IAudioPlayer {
   final AudioPlayer _inner;
   final Future<void> _ready;
   _AudioplayersWrapper(this._inner, this._ready);
+
+  @override
+  Future<void> initialize() => _ready;
 
   @override
   Future<void> setAsset(String assetPath) async {

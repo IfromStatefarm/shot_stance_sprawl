@@ -4,26 +4,33 @@ import 'dart:io';
 import 'package:flutter/material.dart' hide Badge;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gal/gal.dart';
-import 'package:path_provider/path_provider.dart';
 
 import 'app_theme.dart';
-import 'features/badges/badge_models.dart';
-import 'features/badges/presentation/badge_widgets.dart';
-import 'features/drill/presentation/drill_runner_screen.dart';
-import 'features/drill/providers.dart';
-import 'features/recordings/saved_recordings_provider.dart';
+import 'core/local_file_storage.dart';
+import 'features/account/account.dart';
+import 'features/badges/badges.dart';
+import 'features/drill/drill.dart';
+import 'features/drill/presentation/drill_presentation.dart';
+import 'features/recordings/recordings.dart';
+import 'features/social/social.dart';
 
 class DrillSummaryScreen extends ConsumerStatefulWidget {
   final Duration totalTime;
   final int calloutsCompleted;
   final String? videoPath;
+  final DrillConfig configSnapshot;
+  final String sessionId;
+  final String? workoutShareId;
 
   const DrillSummaryScreen({
     super.key,
     required this.totalTime,
     required this.calloutsCompleted,
+    required this.configSnapshot,
+    required this.sessionId,
     this.videoPath,
-  });
+    this.workoutShareId,
+  }) : assert(sessionId.length > 0);
 
   @override
   ConsumerState<DrillSummaryScreen> createState() => _DrillSummaryScreenState();
@@ -35,7 +42,12 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
 
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
+  late final WorkoutSnapshot _completedWorkoutSnapshot;
   var _localRecordingSaveQueued = false;
+  var _isSharingWorkout = false;
+  var _isReportingSocialCompletion = false;
+  var _socialCelebrationShown = false;
+  var _isSendingOneBack = false;
 
   @override
   void initState() {
@@ -45,7 +57,125 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
       vsync: this,
     );
     _fadeAnimation = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
+    _completedWorkoutSnapshot = workoutSnapshotForCompletedSession(
+      widget.configSnapshot,
+    );
     _controller.forward();
+    if (widget.workoutShareId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_reportSharedWorkoutCompletion());
+      });
+    }
+  }
+
+  Future<void> _reportSharedWorkoutCompletion() async {
+    final shareId = widget.workoutShareId;
+    if (shareId == null || _isReportingSocialCompletion) return;
+    _isReportingSocialCompletion = true;
+    try {
+      final repository = ref.read(socialRepositoryProvider);
+      await repository.startWorkoutShare(shareId);
+      final reward = await repository.completeWorkoutShare(
+        shareId,
+        WorkoutResultSummary(
+          durationSeconds: widget.totalTime.inSeconds,
+          calloutsCompleted: widget.calloutsCompleted,
+        ),
+      );
+      if (!mounted) return;
+      if (reward.applied && !_socialCelebrationShown) {
+        _socialCelebrationShown = true;
+        await _showSocialCompletionCelebration(reward);
+      }
+    } catch (error) {
+      if (!mounted) return;
+      final isEs = ref.read(languageProvider) == 'es';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(accountErrorMessage(error)),
+          action: SnackBarAction(
+            label: isEs ? 'Reintentar' : 'Retry',
+            onPressed: () => unawaited(_reportSharedWorkoutCompletion()),
+          ),
+        ),
+      );
+    } finally {
+      _isReportingSocialCompletion = false;
+    }
+  }
+
+  Future<void> _showSocialCompletionCelebration(
+    SocialCompletionReward reward,
+  ) async {
+    final isEs = ref.read(languageProvider) == 'es';
+    final sendBack = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(
+          Icons.celebration,
+          size: 46,
+          color: AppBrandColors.gold,
+        ),
+        title: Text(
+          isEs ? '¡RELEVO COMPLETADO!' : 'RELAY COMPLETE!',
+          textAlign: TextAlign.center,
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              isEs
+                  ? '+${reward.pointsAwarded} puntos sociales verificados'
+                  : '+${reward.pointsAwarded} verified social points',
+              style: Theme.of(dialogContext).textTheme.titleMedium?.copyWith(
+                    color: AppBrandColors.goldDark,
+                    fontWeight: FontWeight.w900,
+                  ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 14),
+            _SocialRewardLine(
+              icon: Icons.local_fire_department,
+              label: isEs ? 'Racha de amigo' : 'Friend Workout Streak',
+              value: '${reward.friendWorkoutStreak}',
+            ),
+            if (reward.partnerQualified)
+              _SocialRewardLine(
+                icon: Icons.handshake,
+                label: isEs ? 'Racha de pareja' : 'Partner Streak',
+                value: '${reward.partnerStreak}',
+              ),
+            if (reward.crewQualified)
+              _SocialRewardLine(
+                icon: Icons.groups,
+                label: isEs ? 'Racha de equipo' : 'Crew Streak',
+                value: '${reward.crewStreak}',
+              ),
+            if (reward.newBadgeIds.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                isEs
+                    ? '${reward.newBadgeIds.length} badge social desbloqueado'
+                    : '${reward.newBadgeIds.length} social badge unlocked',
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(isEs ? 'Ahora no' : 'Not Now'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            icon: const Icon(Icons.reply),
+            label: Text(isEs ? 'ENVIAR DE VUELTA' : 'SEND ONE BACK'),
+          ),
+        ],
+      ),
+    );
+    if (sendBack == true && mounted) await _sendOneBack();
   }
 
   @override
@@ -71,7 +201,8 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
     UserProfile user,
     bool isPro,
   ) async {
-    if (path == null || path.isEmpty || !File(path).existsSync()) {
+    final videoPath = path;
+    if (videoPath == null || !LocalFileStorage.localFileExistsSync(videoPath)) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
             content:
@@ -83,7 +214,7 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
     File? namedVideo;
     try {
       namedVideo = await _copyVideoWithGalleryName(
-        path,
+        videoPath,
         user,
         widget.calloutsCompleted,
       );
@@ -114,13 +245,10 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
         );
       }
     } finally {
-      try {
-        if (namedVideo != null && await namedVideo.exists()) {
-          await namedVideo.delete();
-        }
-      } catch (e) {
-        debugPrint("Temporary Gallery Copy Cleanup Error: $e");
-      }
+      await LocalFileStorage.deleteFileIfExists(
+        namedVideo,
+        debugLabel: 'Temporary Gallery Copy Cleanup Error',
+      );
     }
   }
 
@@ -129,25 +257,13 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
     UserProfile user,
     int calloutsCompleted,
   ) async {
-    final tempDir = await getTemporaryDirectory();
-    final exportDir = Directory(
-      '${tempDir.path}${Platform.pathSeparator}gallery_exports',
-    );
-    if (!await exportDir.exists()) {
-      await exportDir.create(recursive: true);
-    }
-
     final fileName = _galleryVideoFileName(
       user,
       calloutsCompleted,
       DateTime.now(),
     );
-    final destination = File(
-      '${exportDir.path}${Platform.pathSeparator}$fileName',
-    );
-    if (await destination.exists()) {
-      await destination.delete();
-    }
+    final destination = await LocalStoragePaths.galleryExportFile(fileName);
+    await LocalFileStorage.deleteFileIfExists(destination);
 
     return File(sourcePath).copy(destination.path);
   }
@@ -167,7 +283,7 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(userProfileProvider);
-    final config = ref.watch(drillConfigProvider);
+    final config = widget.configSnapshot;
     final lang = ref.watch(languageProvider);
     final isPro = ref.watch(isProProvider);
     final nextChases = ref.watch(homeBadgeChasesProvider);
@@ -179,7 +295,8 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
     );
 
     final effectiveVideoPath = widget.videoPath;
-    if (effectiveVideoPath != null && File(effectiveVideoPath).existsSync()) {
+    if (effectiveVideoPath != null &&
+        LocalFileStorage.localFileExistsSync(effectiveVideoPath)) {
       _queueLocalRecordingSave(effectiveVideoPath);
     }
 
@@ -219,7 +336,8 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
 
                       // FIX: Safe state protection if branding failed or was locked
                       if (effectiveVideoPath != null &&
-                          File(effectiveVideoPath).existsSync())
+                          LocalFileStorage.localFileExistsSync(
+                              effectiveVideoPath))
                         _buildVideoCard(
                           context,
                           effectiveVideoPath,
@@ -452,6 +570,43 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
                 ),
           ),
           const SizedBox(height: 10),
+          if (widget.workoutShareId != null) ...[
+            FilledButton.tonalIcon(
+              onPressed: _isSendingOneBack ? null : _sendOneBack,
+              icon: _isSendingOneBack
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.reply),
+              label: Text(
+                isEs ? 'ENVIAR DE VUELTA' : 'SEND ONE BACK',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(52),
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+          FilledButton.tonalIcon(
+            onPressed:
+                _isSharingWorkout ? null : () => _shareCompletedWorkout(lang),
+            icon: _isSharingWorkout
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.ios_share),
+            label: Text(
+              isEs ? 'COMPARTIR WORKOUT' : 'SHARE WORKOUT',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
+            ),
+          ),
+          const SizedBox(height: 10),
           OutlinedButton(
             onPressed: () =>
                 Navigator.of(context).popUntil((route) => route.isFirst),
@@ -467,6 +622,74 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
         ],
       ),
     );
+  }
+
+  Future<void> _shareCompletedWorkout(String lang) async {
+    final isEs = lang == 'es';
+    final hasAccount = await requireSocialAccount(context, ref);
+    if (!hasAccount || !mounted) return;
+
+    setState(() => _isSharingWorkout = true);
+    try {
+      await showWorkoutShareSheet(
+        context: context,
+        ref: ref,
+        workoutSnapshot: _completedWorkoutSnapshot,
+        workoutSourceKey: workoutSourceKeyForCompletedSession(widget.sessionId),
+        isEs: isEs,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(accountErrorMessage(error))),
+      );
+    } finally {
+      if (mounted) setState(() => _isSharingWorkout = false);
+    }
+  }
+
+  Future<void> _sendOneBack() async {
+    final shareId = widget.workoutShareId;
+    if (shareId == null || _isSendingOneBack) return;
+    final isEs = ref.read(languageProvider) == 'es';
+    final hasAccount = await requireSocialAccount(context, ref);
+    if (!hasAccount || !mounted) return;
+
+    setState(() => _isSendingOneBack = true);
+    try {
+      final repository = ref.read(socialRepositoryProvider);
+      final receivedShare = await repository.loadWorkoutShare(shareId);
+      final result = await repository.shareWorkout(
+        recipientUid: receivedShare.senderUid,
+        workoutSourceKey: workoutSourceKeyForSendBack(
+          shareId,
+          widget.sessionId,
+        ),
+        workoutSnapshot: _completedWorkoutSnapshot,
+        message: isEs
+            ? '¡Tu turno! Te devuelvo el workout.'
+            : 'Your turn — sending one back!',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.created
+                ? (isEs ? 'Workout enviado de vuelta.' : 'Workout sent back.')
+                : (isEs
+                    ? 'Ese workout ya fue enviado.'
+                    : 'That workout was already sent.'),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(accountErrorMessage(error))),
+      );
+    } finally {
+      if (mounted) setState(() => _isSendingOneBack = false);
+    }
   }
 
   void _startOvertime(BuildContext context) {
@@ -486,6 +709,36 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen>
 
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const DrillRunnerScreen()),
+    );
+  }
+}
+
+class _SocialRewardLine extends StatelessWidget {
+  const _SocialRewardLine({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 8),
+          Expanded(child: Text(label)),
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -574,6 +827,15 @@ String _badgeUnit(Badge badge) {
   final remaining = _badgeRemaining(badge);
   final plural = remaining == 1 ? '' : 's';
   if (badge.category == BadgeCategory.streak) return 'day$plural';
+  if (badge.category == BadgeCategory.social) {
+    if (badge.iconName == 'partner' || badge.iconName == 'crew') {
+      return 'week$plural';
+    }
+    if (badge.iconName == 'relay' || badge.iconName == 'friend_workout') {
+      return 'day$plural';
+    }
+    return 'point$plural';
+  }
   if (badge.category == BadgeCategory.timedMastery ||
       badge.iconName == 'timer' ||
       badge.iconName == 'stance' ||

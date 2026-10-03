@@ -34,31 +34,31 @@ class AdLibSlots {
       id: 'ad_lib_1',
       number: 1,
       label: 'Ad Lib 1',
-      defaultAssetPath: 'assets/audio/ad_libs/Ad_lib1.mp3',
+      defaultAssetPath: 'assets/audio/ad_libs/ad_lib_1.wav',
     ),
     AdLibSlot(
       id: 'ad_lib_2',
       number: 2,
       label: 'Ad Lib 2',
-      defaultAssetPath: 'assets/audio/ad_libs/Ad_lib2.mp3',
+      defaultAssetPath: 'assets/audio/ad_libs/ad_lib_2.wav',
     ),
     AdLibSlot(
       id: 'ad_lib_3',
       number: 3,
       label: 'Ad Lib 3',
-      defaultAssetPath: 'assets/audio/ad_libs/Ad_lib3.mp3',
+      defaultAssetPath: 'assets/audio/ad_libs/ad_lib_3.wav',
     ),
     AdLibSlot(
       id: 'ad_lib_4',
       number: 4,
       label: 'Ad Lib 4',
-      defaultAssetPath: 'assets/audio/ad_libs/Ad_lib4.mp3',
+      defaultAssetPath: 'assets/audio/ad_libs/ad_lib_4.wav',
     ),
     AdLibSlot(
       id: 'ad_lib_5',
       number: 5,
       label: 'Ad Lib 5',
-      defaultAssetPath: 'assets/audio/ad_libs/Ad_lib5.mp3',
+      defaultAssetPath: 'assets/audio/ad_libs/ad_lib_5.wav',
     ),
   ];
 

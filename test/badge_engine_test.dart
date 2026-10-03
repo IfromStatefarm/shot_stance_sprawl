@@ -202,5 +202,42 @@ void main() {
       );
       expect(state.stats.currentOvertimeStreak, 3);
     });
+
+    test('evaluates social badges only from server-supplied stats', () {
+      final state = BadgeEngine().recordSocialProgress(
+        const BadgeProgressState(),
+        SocialBadgeInput(
+          updatedAt: DateTime.utc(2026, 8, 10),
+          totalSharedWorkouts: 20,
+          socialProgressPoints: 112,
+          relayStreak: 3,
+          friendWorkoutStreak: 7,
+          bestPartnerStreak: 2,
+          crewStreak: 3,
+          totalQualifiedRelays: 4,
+          totalCompletedFriendWorkouts: 7,
+          totalCrewWeeks: 3,
+        ),
+      );
+
+      final unlocked = state
+          .badgesFor(BadgeCatalog.launchBadges)
+          .where((badge) => badge.isUnlocked)
+          .map((badge) => badge.id)
+          .toSet();
+
+      expect(
+        unlocked,
+        containsAll({
+          'social_first_share',
+          'social_relay_3',
+          'social_friend_streak_7',
+          'social_partner_2',
+          'social_crew_3',
+          'social_century',
+        }),
+      );
+      expect(state.stats.socialProgressPoints, 112);
+    });
   });
 }

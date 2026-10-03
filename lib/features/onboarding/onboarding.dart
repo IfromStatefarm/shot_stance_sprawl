@@ -4,8 +4,12 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../drill/providers.dart';
+import 'season_schedule.dart';
+
+part 'data/onboarding_repository.dart';
 
 enum OnboardingRole {
   wrestler,
@@ -88,6 +92,7 @@ extension OnboardingPushLevelText on OnboardingPushLevel {
 
 @immutable
 class OnboardingProfile {
+  final String? stateName;
   final OnboardingRole role;
   final OnboardingGoal goal;
   final OnboardingFocus focus;
@@ -97,6 +102,7 @@ class OnboardingProfile {
   final DateTime? lastWorkoutCompletedAt;
 
   const OnboardingProfile({
+    this.stateName,
     required this.role,
     required this.goal,
     required this.focus,
@@ -108,6 +114,7 @@ class OnboardingProfile {
 
   Map<String, dynamic> toMap() {
     return {
+      'stateName': stateName,
       'role': role.name,
       'goal': goal.name,
       'focus': focus.name,
@@ -122,6 +129,9 @@ class OnboardingProfile {
 
   factory OnboardingProfile.fromMap(Map<String, dynamic> map) {
     return OnboardingProfile(
+      stateName: seasonDatesByState.containsKey(map['stateName'])
+          ? map['stateName'] as String
+          : null,
       role: _enumFromName(
         OnboardingRole.values,
         map['role'] as String?,
@@ -158,10 +168,14 @@ class OnboardingProfile {
   }
 
   OnboardingProfile copyWith({
+    Object? stateName = _stateNameUnset,
     bool? workoutRemindersEnabled,
     Object? lastWorkoutCompletedAt = _dateTimeUnset,
   }) {
     return OnboardingProfile(
+      stateName: identical(stateName, _stateNameUnset)
+          ? this.stateName
+          : stateName as String?,
       role: role,
       goal: goal,
       focus: focus,
@@ -207,6 +221,7 @@ class OnboardingState {
 
 const _profileUnset = Object();
 const _dateTimeUnset = Object();
+const _stateNameUnset = Object();
 
 final onboardingProvider =
     NotifierProvider<OnboardingNotifier, OnboardingState>(() {
@@ -214,19 +229,18 @@ final onboardingProvider =
 });
 
 class OnboardingNotifier extends Notifier<OnboardingState> {
-  static const _keyOnboardingProfile = 'onboarding_profile_v1';
-
   @override
   OnboardingState build() {
     unawaited(load());
     return const OnboardingState();
   }
 
+  Future<OnboardingRepository> _repository() async {
+    return OnboardingRepository(await ref.read(sharedPrefsProvider.future));
+  }
+
   Future<OnboardingState> load() async {
-    final prefs = await ref.read(sharedPrefsProvider.future);
-    final jsonString = prefs.getString(_keyOnboardingProfile);
-    final profile =
-        jsonString == null ? null : OnboardingProfile.fromJson(jsonString);
+    final profile = (await _repository()).loadProfile();
 
     state = OnboardingState(loaded: true, profile: profile);
     return state;
@@ -238,8 +252,7 @@ class OnboardingNotifier extends Notifier<OnboardingState> {
   }
 
   Future<void> complete(OnboardingProfile profile) async {
-    final prefs = await ref.read(sharedPrefsProvider.future);
-    await prefs.setString(_keyOnboardingProfile, profile.toJson());
+    await (await _repository()).saveProfile(profile);
     state = OnboardingState(loaded: true, profile: profile);
   }
 
@@ -256,6 +269,16 @@ class OnboardingNotifier extends Notifier<OnboardingState> {
     final next = current.copyWith(workoutRemindersEnabled: enabled);
     await complete(next);
     return next;
+  }
+
+  Future<void> setStateName(String stateName) async {
+    if (!seasonDatesByState.containsKey(stateName)) {
+      throw ArgumentError.value(stateName, 'stateName', 'Unknown state');
+    }
+    final loadedState = state.loaded ? state : await load();
+    final current = loadedState.profile;
+    if (current == null) return;
+    await complete(current.copyWith(stateName: stateName));
   }
 
   Future<OnboardingProfile> recordWorkoutCompleted(DateTime completedAt) async {

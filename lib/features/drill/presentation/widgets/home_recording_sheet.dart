@@ -1,14 +1,9 @@
-import 'dart:async';
-import 'dart:io';
-
-import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:record/record.dart';
 
 import '../../../../app_theme.dart';
 import '../../providers.dart';
+import '../../services/shared_audio_recording_service.dart';
 
 class HomeRecordingSheetContent extends ConsumerStatefulWidget {
   final String calloutId;
@@ -29,40 +24,34 @@ class HomeRecordingSheetContent extends ConsumerStatefulWidget {
 
 class _HomeRecordingSheetContentState
     extends ConsumerState<HomeRecordingSheetContent> {
-  final recorder = AudioRecorder();
-  final audioPlayer = AudioPlayer();
+  final _audio = SharedAudioRecordingService();
   bool isRecording = false;
   String? recordedPath;
 
   @override
   void initState() {
     super.initState();
-    unawaited(audioPlayer.setPlayerMode(PlayerMode.mediaPlayer));
-    unawaited(audioPlayer.setReleaseMode(ReleaseMode.stop));
+    _audio.configurePreviewPlayer();
   }
 
   @override
   void dispose() {
-    recorder.dispose();
-    audioPlayer.dispose();
+    _audio.dispose();
     super.dispose();
   }
 
   Future<void> _startRecording() async {
-    if (await recorder.hasPermission()) {
-      final dir = await getApplicationDocumentsDirectory();
-      final path =
-          '${dir.path}/${widget.calloutId}_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    if (await _audio.hasPermission()) {
+      final path = await _audio.timestampedDocumentAudioPath(widget.calloutId);
 
-      const config = RecordConfig(encoder: AudioEncoder.aacLc);
-      await recorder.start(config, path: path);
+      await _audio.startAacRecording(path);
 
       setState(() => isRecording = true);
     }
   }
 
   Future<void> _stopRecording() async {
-    final path = await recorder.stop();
+    final path = await _audio.stopRecording();
     setState(() {
       isRecording = false;
       recordedPath = path;
@@ -77,15 +66,15 @@ class _HomeRecordingSheetContentState
 
   Future<void> _playPreview(String path) async {
     try {
-      await audioPlayer.stop();
-      await audioPlayer.play(DeviceFileSource(path));
+      await _audio.stopPlayer();
+      await _audio.playDeviceFile(path);
     } catch (e) {
       debugPrint('Could not play custom callout preview: $e');
     }
   }
 
   Future<void> _deleteOverrideRecording(String path) async {
-    await audioPlayer.stop();
+    await _audio.stopPlayer();
     ref.read(drillConfigProvider.notifier).removeCalloutAudio(widget.calloutId);
 
     setState(() {
@@ -93,14 +82,10 @@ class _HomeRecordingSheetContentState
       isRecording = false;
     });
 
-    try {
-      final file = File(path);
-      if (await file.exists()) {
-        await file.delete();
-      }
-    } catch (e) {
-      debugPrint('Could not delete custom callout audio: $e');
-    }
+    await _audio.deleteFileIfExists(
+      path,
+      debugLabel: 'Could not delete custom callout audio',
+    );
   }
 
   @override

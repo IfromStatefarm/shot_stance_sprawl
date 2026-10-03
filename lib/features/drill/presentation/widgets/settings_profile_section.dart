@@ -6,6 +6,8 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../../../app_theme.dart';
 import '../../providers.dart';
+import '../../../social/social_providers.dart';
+import '../../../social/team_sheet.dart';
 
 class SettingsProfileHeader extends ConsumerWidget {
   const SettingsProfileHeader({super.key});
@@ -49,7 +51,8 @@ class SettingsProfileHeader extends ConsumerWidget {
               onSave(controller.text);
               Navigator.pop(ctx);
             },
-            child: Text(ref.read(languageProvider) == 'es' ? 'Guardar' : 'Save'),
+            child:
+                Text(ref.read(languageProvider) == 'es' ? 'Guardar' : 'Save'),
           ),
         ],
       ),
@@ -60,6 +63,7 @@ class SettingsProfileHeader extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final lang = ref.watch(languageProvider);
     final user = ref.watch(userProfileProvider);
+    final team = ref.watch(currentTeamProvider).asData?.value;
     final isEs = lang == 'es';
 
     return Padding(
@@ -121,19 +125,9 @@ class SettingsProfileHeader extends ConsumerWidget {
           const SizedBox(height: 8),
           _ProfileSetupTile(
             icon: Icons.groups_outlined,
-            label: isEs ? 'Nombre del equipo' : 'Team name',
-            value: (user.teamName == null || user.teamName!.trim().isEmpty)
-                ? (isEs ? 'Sin equipo' : 'Not set')
-                : user.teamName!,
-            onTap: () => _editField(
-              context,
-              ref,
-              isEs ? 'Nombre del equipo' : 'Team name',
-              user.teamName ?? '',
-              (val) {
-                ref.read(userProfileProvider.notifier).updateTeam(val.trim());
-              },
-            ),
+            label: isEs ? 'Mi equipo' : 'My Team',
+            value: team?.name ?? (isEs ? 'Crear o unirme' : 'Create or join'),
+            onTap: () => showTeamSheet(context, ref),
           ),
         ],
       ),

@@ -1,14 +1,61 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'data/badge_progress_repository.dart';
 import 'badge_catalog.dart';
 import 'badge_engine.dart';
 import 'badge_models.dart';
+import '../social/social_models.dart';
+import '../social/social_providers.dart';
 
 final badgeProgressProvider =
     NotifierProvider<BadgeProgressNotifier, BadgeProgressState>(() {
   return BadgeProgressNotifier();
+});
+
+/// Mirrors server-authoritative social stats into the existing local badge
+/// engine. Social streak dates and rewards are never calculated here.
+final socialBadgeSyncProvider = Provider<void>((ref) {
+  String? lastSignature;
+  ref.listen<AsyncValue<SocialStats?>>(socialStatsProvider, (_, next) {
+    final stats = next.asData?.value;
+    if (stats == null) return;
+    final signature = [
+      stats.uid,
+      stats.totalSharedWorkouts,
+      stats.socialProgressPoints,
+      stats.relayStreak,
+      stats.friendWorkoutStreak,
+      stats.bestPartnerStreak,
+      stats.crewStreak,
+      stats.totalQualifiedRelays,
+      stats.totalCompletedFriendWorkouts,
+      stats.totalCrewWeeks,
+      stats.updatedAt?.microsecondsSinceEpoch ?? 0,
+    ].join(':');
+    if (signature == lastSignature) return;
+    lastSignature = signature;
+    unawaited(
+      ref.read(badgeProgressProvider.notifier).recordSocialProgress(
+            SocialBadgeInput(
+              updatedAt:
+                  stats.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+              totalSharedWorkouts: stats.totalSharedWorkouts,
+              socialProgressPoints: stats.socialProgressPoints,
+              relayStreak: stats.relayStreak,
+              friendWorkoutStreak: stats.friendWorkoutStreak,
+              bestPartnerStreak: stats.bestPartnerStreak,
+              crewStreak: stats.crewStreak,
+              totalQualifiedRelays: stats.totalQualifiedRelays,
+              totalCompletedFriendWorkouts: stats.totalCompletedFriendWorkouts,
+              totalCrewWeeks: stats.totalCrewWeeks,
+            ),
+          ),
+    );
+  }, fireImmediately: true);
 });
 
 final badgeViewsProvider = Provider<List<Badge>>((ref) {
@@ -58,7 +105,9 @@ final homeBadgeChasesProvider = Provider<List<Badge>>((ref) {
             badge.category == BadgeCategory.timedMastery))
         case final badge?)
       badge,
-    if (nearest(badges.where((badge) => badge.category == BadgeCategory.streak))
+    if (nearest(badges.where((badge) =>
+            badge.category == BadgeCategory.streak ||
+            badge.category == BadgeCategory.social))
         case final badge?)
       badge,
     if (nearest(badges.where((badge) =>
@@ -73,46 +122,52 @@ final homeBadgeChasesProvider = Provider<List<Badge>>((ref) {
 });
 
 class BadgeProgressNotifier extends Notifier<BadgeProgressState> {
-  static const _keyBadgeProgress = 'badge_progress_v1';
   static final _engine = BadgeEngine();
+  late Future<void> _loadFuture;
 
   @override
   BadgeProgressState build() {
-    _load();
+    _loadFuture = _load();
     return const BadgeProgressState();
+  }
+
+  Future<BadgeProgressRepository> _repository() async {
+    return BadgeProgressRepository(await SharedPreferences.getInstance());
   }
 
   Future<void> _load() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final jsonString = prefs.getString(_keyBadgeProgress);
-      if (jsonString == null) {
-        await prefs.setString(_keyBadgeProgress, state.toJson());
+      final repository = await _repository();
+      final progress = repository.loadProgress();
+      if (progress == null) {
+        await repository.saveProgress(state);
         return;
       }
-      state = BadgeProgressState.fromJson(jsonString);
+      state = progress;
     } catch (e) {
       debugPrint('Error loading badge progress: $e');
     }
   }
 
   Future<void> _save() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyBadgeProgress, state.toJson());
+    await (await _repository()).saveProgress(state);
   }
 
   Future<BadgeWorkoutResult> recordWorkout(WorkoutBadgeInput input) async {
+    await _loadFuture;
     state = _engine.recordWorkout(state, input);
     await _save();
     return state.lastWorkoutResult ?? const BadgeWorkoutResult();
   }
 
   Future<void> markSeasonTargetSet(DateTime targetDate) async {
+    await _loadFuture;
     state = _engine.recordSeasonTargetSet(state, targetDate);
     await _save();
   }
 
   Future<void> recordCustomCalloutCreated(int customCalloutCount) async {
+    await _loadFuture;
     state = _engine.recordCustomCalloutCreated(
       state,
       customCalloutCount: customCalloutCount,
@@ -121,7 +176,14 @@ class BadgeProgressNotifier extends Notifier<BadgeProgressState> {
   }
 
   Future<void> recordPremiumRecordingSaved() async {
+    await _loadFuture;
     state = _engine.recordPremiumRecordingSaved(state);
+    await _save();
+  }
+
+  Future<void> recordSocialProgress(SocialBadgeInput input) async {
+    await _loadFuture;
+    state = _engine.recordSocialProgress(state, input);
     await _save();
   }
 }

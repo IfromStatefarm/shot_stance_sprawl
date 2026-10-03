@@ -82,6 +82,9 @@ class BadgeProgressSection extends ConsumerWidget {
     final streaks = badges
         .where((badge) => badge.category == BadgeCategory.streak)
         .toList();
+    final social = badges
+        .where((badge) => badge.category == BadgeCategory.social)
+        .toList();
     final grindAndCombos = badges.where((badge) {
       return badge.category == BadgeCategory.grind ||
           badge.category == BadgeCategory.combo ||
@@ -120,6 +123,10 @@ class BadgeProgressSection extends ConsumerWidget {
         _BadgeSection(
           title: isEs ? 'Rachas' : 'Streaks',
           badges: streaks,
+        ),
+        _BadgeSection(
+          title: isEs ? 'Relevos sociales' : 'Social Relays',
+          badges: social,
         ),
         _BadgeSection(
           title: isEs ? 'Trabajo y combos' : 'Grind + Combos',
@@ -239,7 +246,7 @@ class WorkoutBadgeSummary extends ConsumerWidget {
             ),
             const SizedBox(height: 8),
             SizedBox(
-              height: 120,
+              height: _badgeTileHeight(context, compact: true),
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemBuilder: (context, index) {
@@ -367,7 +374,7 @@ class _BadgeSection extends StatelessWidget {
             )
           else
             SizedBox(
-              height: 154,
+              height: _badgeTileHeight(context),
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemBuilder: (context, index) {
@@ -381,6 +388,12 @@ class _BadgeSection extends StatelessWidget {
       ),
     );
   }
+}
+
+double _badgeTileHeight(BuildContext context, {bool compact = false}) {
+  final extraTextHeight =
+      math.max(0, MediaQuery.textScalerOf(context).scale(14) - 14);
+  return (compact ? 120 : 154) + extraTextHeight * 4;
 }
 
 class _BadgeTile extends StatelessWidget {
@@ -787,6 +800,17 @@ String _remainingText(Badge badge) {
 String _unitFor(Badge badge, int value) {
   final plural = value == 1 ? '' : 's';
   if (badge.category == BadgeCategory.streak) return 'day$plural';
+  if (badge.category == BadgeCategory.social) {
+    if (badge.iconName == 'partner' || badge.iconName == 'crew') {
+      return 'week$plural';
+    }
+    if (badge.iconName == 'relay' || badge.iconName == 'friend_workout') {
+      return 'day$plural';
+    }
+    if (badge.id == 'social_first_share') return 'workout';
+    if (badge.id == 'social_first_relay') return 'relay';
+    return 'point$plural';
+  }
   if (badge.category == BadgeCategory.timedMastery || badge.metricLooksTimed) {
     return 'minute$plural';
   }
@@ -850,6 +874,16 @@ IconData _badgeIcon(String iconName) {
       return Icons.more_time;
     case 'premium':
       return Icons.workspace_premium;
+    case 'social':
+      return Icons.people_alt;
+    case 'relay':
+      return Icons.sync_alt;
+    case 'friend_workout':
+      return Icons.fitness_center;
+    case 'partner':
+      return Icons.handshake;
+    case 'crew':
+      return Icons.groups;
     case 'secret':
       return Icons.lock;
     default:

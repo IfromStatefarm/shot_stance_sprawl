@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>216217921339-e9g4cievrnjrbkfpug1bc7so8i9nqckp.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.216217921339-e9g4cievrnjrbkfpug1bc7so8i9nqckp</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>216217921339-22b17vv0un0as5o6iskn3qkv0n890s43.apps.googleusercontent.com</string>
+	<key>API_KEY</key>
+	<string>AIzaSyDagJxhoFglhN2BPdsfkyGNFJ4lWmnTJP8</string>
+	<key>GCM_SENDER_ID</key>
+	<string>216217921339</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.snapandgo.shadowwrestling</string>
+	<key>PROJECT_ID</key>
+	<string>snap-and-go-dev</string>
+	<key>STORAGE_BUCKET</key>
+	<string>snap-and-go-dev.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:216217921339:ios:b3be5500db0082af6d791e</string>
+</dict>
+</plist>

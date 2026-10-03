@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "default_en",
+  "name": "Snap & Go Coach",
+  "languageCode": "en",
+  "languageName": "English",
+  "attribution": "Snap & Go Wrestling",
+  "callouts": {
+    "callout_shot": "assets/audio/callouts/callout_shot.wav",
+    "callout_sprawl": "assets/audio/callouts/callout_sprawl.wav",
+    "callout_stance": "assets/audio/callouts/callout_stance.wav",
+    "callout_circle": "assets/audio/callouts/callout_circle.wav",
+    "callout_down_block": "assets/audio/callouts/callout_down_block.wav",
+    "callout_fake": "assets/audio/callouts/callout_fake.wav",
+    "callout_level_change": "assets/audio/callouts/callout_level_change.wav",
+    "callout_snap_down": "assets/audio/callouts/callout_snap_down.wav",
+    "callout_high_knees": "assets/audio/callouts/callout_high_knees.wav",
+    "callout_foot_fire": "assets/audio/callouts/callout_foot_fire.wav",
+    "callout_hand_fight": "assets/audio/callouts/callout_hand_fight.wav"
+  },
+  "adLibs": {
+    "ad_lib_1": "assets/audio/ad_libs/ad_lib_1.wav",
+    "ad_lib_2": "assets/audio/ad_libs/ad_lib_2.wav",
+    "ad_lib_3": "assets/audio/ad_libs/ad_lib_3.wav",
+    "ad_lib_4": "assets/audio/ad_libs/ad_lib_4.wav",
+    "ad_lib_5": "assets/audio/ad_libs/ad_lib_5.wav"
+  },
+  "whistle": "assets/audio/callouts/whistle.wav"
+}

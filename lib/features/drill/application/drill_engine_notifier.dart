@@ -15,6 +15,7 @@ import '../ad_libs.dart';
 import '../intervals.dart';
 import '../models.dart';
 import '../recording_policy.dart';
+import '../services/drill_audio_session_service.dart';
 import '../services/drill_audio_service.dart';
 import '../services/drill_camera_service.dart';
 import '../training_progress_provider.dart';
@@ -23,6 +24,9 @@ import 'drill_session_controller.dart';
 import 'drill_timer_controller.dart';
 
 final audioFactoryProvider = Provider<AudioFactory>((_) => RealAudioFactory());
+final drillAudioSessionProvider = Provider<DrillAudioSessionService>(
+  (_) => DrillAudioSessionService(),
+);
 final intervalStrategyProvider =
     Provider<IntervalStrategy>((_) => UniformIntervalStrategy());
 
@@ -130,6 +134,7 @@ class DrillEngineNotifier extends Notifier<DrillState>
   late final DrillTimerController _timers;
   late final CalloutScheduler _scheduler;
   late final DrillAudioService _audioService;
+  late final DrillAudioSessionService _audioSessionService;
   late final DrillCameraService _cameraService;
 
   CameraController? get cameraController => _cameraService.cameraController;
@@ -139,6 +144,8 @@ class DrillEngineNotifier extends Notifier<DrillState>
   Callout? _nextCalloutToPlay;
   DrillConfig? _activeConfig;
   List<Callout> _activeAllCallouts = const [];
+  int _playbackGeneration = 0;
+  Future<void> _cueStopBarrier = Future.value();
 
   @override
   DrillState build() {
@@ -150,6 +157,7 @@ class DrillEngineNotifier extends Notifier<DrillState>
     _audioService = DrillAudioService(
       audioFactory: ref.read(audioFactoryProvider),
     );
+    _audioSessionService = ref.read(drillAudioSessionProvider);
     _cameraService = DrillCameraService();
 
     WidgetsBinding.instance.addObserver(this);
@@ -195,6 +203,7 @@ class DrillEngineNotifier extends Notifier<DrillState>
     required bool isPro,
   }) async {
     if (_sessions.isStarting || state.running) return;
+    final preparationGeneration = _playbackGeneration;
 
     final effectiveConfig = RecordingPolicy.effectiveConfig(
       config: config,
@@ -211,6 +220,7 @@ class DrillEngineNotifier extends Notifier<DrillState>
     }
 
     await _audioService.resetPlayers();
+    if (preparationGeneration != _playbackGeneration) return;
     _lastCalloutId = null;
     _nextCalloutToPlay = null;
 
@@ -223,13 +233,20 @@ class DrillEngineNotifier extends Notifier<DrillState>
           state = state.copyWith(cameraInitialized: initialized);
         },
       );
+      if (preparationGeneration != _playbackGeneration) return;
     }
 
     final selected = _scheduler.selectedCalloutsFor(
       effectiveConfig,
       allCallouts,
     );
-    await _audioService.preloadAudio(selected);
+    await _audioService.preloadAudio(selected, effectiveConfig);
+    if (preparationGeneration != _playbackGeneration) return;
+    await _configureAudioSession(
+      videoEnabled: effectiveConfig.videoEnabled,
+      force: true,
+    );
+    if (preparationGeneration != _playbackGeneration) return;
     if (selected.isNotEmpty) {
       _nextCalloutToPlay = _scheduler.pickCallout(
         selected,
@@ -239,6 +256,7 @@ class DrillEngineNotifier extends Notifier<DrillState>
         _nextCalloutToPlay!,
         effectiveConfig,
       );
+      if (preparationGeneration != _playbackGeneration) return;
     }
 
     _preparedStartKey = preparationKey;
@@ -256,6 +274,12 @@ class DrillEngineNotifier extends Notifier<DrillState>
       if (_sessions.isGlobalFinishing) return;
 
       final thisSession = _sessions.startNewSession();
+      final playbackGeneration = _invalidatePlayback();
+      _timers.cancel();
+      _timers.stop();
+      await _stopAllCueChannels();
+      if (!_isStartCurrent(thisSession, playbackGeneration)) return;
+
       final effectiveConfig = RecordingPolicy.effectiveConfig(
         config: config,
         isPro: isPro,
@@ -273,10 +297,9 @@ class DrillEngineNotifier extends Notifier<DrillState>
       _activeConfig = effectiveConfig;
       _activeAllCallouts = List<Callout>.unmodifiable(allCallouts);
 
-      _timers.cancel();
-
       if (!usePreparedStart) {
         await _audioService.resetPlayers();
+        if (!_isStartCurrent(thisSession, playbackGeneration)) return;
         _nextCalloutToPlay = null;
       }
 
@@ -312,12 +335,18 @@ class DrillEngineNotifier extends Notifier<DrillState>
             state = state.copyWith(cameraInitialized: initialized);
           },
         );
-        if (!_sessions.isCurrent(thisSession) || state.finished) return;
+        if (!_isPlaybackActive(thisSession, playbackGeneration)) return;
       }
 
       if (!usePreparedStart) {
-        await _audioService.preloadAudio(selected);
+        await _audioService.preloadAudio(selected, effectiveConfig);
+        if (!_isPlaybackActive(thisSession, playbackGeneration)) return;
       }
+      await _configureAudioSession(
+        videoEnabled: effectiveConfig.videoEnabled,
+        force: true,
+      );
+      if (!_isPlaybackActive(thisSession, playbackGeneration)) return;
       if (selected.isNotEmpty && _nextCalloutToPlay == null) {
         _nextCalloutToPlay = _scheduler.pickCallout(
           selected,
@@ -329,21 +358,18 @@ class DrillEngineNotifier extends Notifier<DrillState>
           _nextCalloutToPlay!,
           effectiveConfig,
         );
+        if (!_isPlaybackActive(thisSession, playbackGeneration)) return;
       }
-      if (!_sessions.isCurrent(thisSession) || state.finished) return;
       _preparedStartKey = null;
 
       if (playStartWhistle) {
-        await _audioService.playFirstAvailableOnCallout([
-          'assets/audio/callouts/whistle_start.wav',
-          'assets/audio/callouts/whistle_start.mp3',
-        ],
-            shouldAbort: () =>
-                !_sessions.isCurrent(thisSession) || state.finished);
-        await Future.delayed(const Duration(milliseconds: 1600));
+        await _audioService.playWhistle(
+          effectiveConfig,
+          shouldAbort: () =>
+              !_isPlaybackActive(thisSession, playbackGeneration),
+        );
+        if (!_isPlaybackActive(thisSession, playbackGeneration)) return;
       }
-
-      if (!_sessions.isCurrent(thisSession) || state.finished) return;
 
       if (effectiveConfig.videoEnabled && state.cameraInitialized) {
         await _cameraService.startRecording(
@@ -351,6 +377,12 @@ class DrillEngineNotifier extends Notifier<DrillState>
             state = state.copyWith(isRecording: isRecording);
           },
         );
+        if (!_isPlaybackActive(thisSession, playbackGeneration)) return;
+        await _configureAudioSession(
+          videoEnabled: state.isRecording,
+          force: true,
+        );
+        if (!_isPlaybackActive(thisSession, playbackGeneration)) return;
       }
 
       _timers.resetAndStart();
@@ -370,8 +402,15 @@ class DrillEngineNotifier extends Notifier<DrillState>
       );
 
       _timers.scheduleNext(_firstCalloutDelay, () {
-        if (_sessions.isCurrent(thisSession) && !state.finished) {
-          _fire(selected, effectiveConfig, thisSession);
+        if (_isPlaybackActive(thisSession, playbackGeneration)) {
+          unawaited(
+            _fire(
+              selected,
+              effectiveConfig,
+              thisSession,
+              playbackGeneration,
+            ),
+          );
         }
       });
     } catch (e) {
@@ -381,19 +420,37 @@ class DrillEngineNotifier extends Notifier<DrillState>
     }
   }
 
-  void pause() {
-    if (state.finished || state.paused) return;
+  Future<void> pause() async {
+    if (state.finished || state.paused || !state.running) return;
+    _invalidatePlayback();
     _timers.cancel(keepTicker: true);
     _timers.stop();
     state = state.copyWith(
       paused: true,
       sessionPauseCount: state.sessionPauseCount + 1,
     );
+    await _stopAllCueChannels();
   }
 
-  void resume(
-      {required DrillConfig config, required List<Callout> allCallouts}) {
-    if (state.finished || !state.paused) return;
+  Future<void> resume({
+    required DrillConfig config,
+    required List<Callout> allCallouts,
+  }) async {
+    if (state.finished || !state.paused || !state.running) return;
+
+    final session = _sessions.currentSession;
+    await _cueStopBarrier;
+    if (state.finished ||
+        !state.paused ||
+        !state.running ||
+        _sessions.isFinishing ||
+        !_sessions.isCurrent(session)) {
+      return;
+    }
+
+    final playbackGeneration = _invalidatePlayback();
+    state = state.copyWith(paused: false);
+    _timers.cancel(keepTicker: true);
     _timers.start();
     final selected = _scheduler.selectedCalloutsFor(config, allCallouts);
 
@@ -401,9 +458,9 @@ class DrillEngineNotifier extends Notifier<DrillState>
       _scheduler.nextCalloutDelay(config),
       config,
       selected,
-      _sessions.currentSession,
+      session,
+      playbackGeneration,
     );
-    state = state.copyWith(paused: false);
   }
 
   Future<void> stop() async {
@@ -411,8 +468,12 @@ class DrillEngineNotifier extends Notifier<DrillState>
   }
 
   Future<void> _fire(
-      List<Callout> selected, DrillConfig cfg, int session) async {
-    if (!_sessions.isCurrent(session) || state.finished || selected.isEmpty) {
+    List<Callout> selected,
+    DrillConfig cfg,
+    int session,
+    int playbackGeneration,
+  ) async {
+    if (!_isPlaybackActive(session, playbackGeneration) || selected.isEmpty) {
       return;
     }
     _timers.cancelAdLib();
@@ -431,17 +492,18 @@ class DrillEngineNotifier extends Notifier<DrillState>
     unawaited(HapticFeedback.lightImpact());
     state = state.copyWith(lastCallout: next, holdRemaining: null);
 
+    if (!_isPlaybackActive(session, playbackGeneration)) return;
     try {
       await _audioService.playCallout(
         next,
         cfg,
-        shouldAbort: () => !_sessions.isCurrent(session) || state.finished,
+        shouldAbort: () => !_isPlaybackActive(session, playbackGeneration),
       );
     } catch (_) {
       unawaited(HapticFeedback.mediumImpact());
     }
 
-    if (!_sessions.isCurrent(session) || state.finished) return;
+    if (!_isPlaybackActive(session, playbackGeneration)) return;
     final newCount = state.calloutsCompleted + 1;
 
     final overrideDuration = cfg.calloutOverrideDurations[next.id];
@@ -479,12 +541,23 @@ class DrillEngineNotifier extends Notifier<DrillState>
         sessionFullMinuteCallouts: nextSessionFullMinuteCallouts,
       );
 
-      _scheduleAdLibForHold(hold, cfg, session);
+      _scheduleAdLibForHold(
+        hold,
+        cfg,
+        session,
+        playbackGeneration,
+      );
 
       _timers.scheduleHold(hold, () {
-        if (_sessions.isCurrent(session) && !state.finished) {
+        if (_isPlaybackActive(session, playbackGeneration)) {
           state = state.copyWith(holdRemaining: null);
-          _scheduleNext(delay, cfg, selected, session);
+          _scheduleNext(
+            delay,
+            cfg,
+            selected,
+            session,
+            playbackGeneration,
+          );
         }
       });
     } else {
@@ -497,25 +570,44 @@ class DrillEngineNotifier extends Notifier<DrillState>
         sessionFullMinuteCallouts: nextSessionFullMinuteCallouts,
       );
       _timers.cancelAdLib();
-      _scheduleNext(delay, cfg, selected, session);
+      _scheduleNext(
+        delay,
+        cfg,
+        selected,
+        session,
+        playbackGeneration,
+      );
     }
   }
 
-  void _scheduleNext(double delaySeconds, DrillConfig cfg,
-      List<Callout> selected, int session) {
-    if (selected.isEmpty) return;
+  void _scheduleNext(
+    double delaySeconds,
+    DrillConfig cfg,
+    List<Callout> selected,
+    int session,
+    int playbackGeneration,
+  ) {
+    if (selected.isEmpty || !_isPlaybackActive(session, playbackGeneration)) {
+      return;
+    }
 
     _nextCalloutToPlay = _scheduler.pickCallout(
       selected,
       lastCalloutId: _lastCalloutId,
     );
-    unawaited(_audioService.prepareCuePlayerFor(_nextCalloutToPlay!, cfg));
 
     _timers.scheduleNext(
       Duration(milliseconds: (delaySeconds * 1000).round()),
       () {
-        if (_sessions.isCurrent(session) && !state.finished) {
-          _fire(selected, cfg, session);
+        if (_isPlaybackActive(session, playbackGeneration)) {
+          unawaited(
+            _fire(
+              selected,
+              cfg,
+              session,
+              playbackGeneration,
+            ),
+          );
         }
       },
     );
@@ -527,8 +619,17 @@ class DrillEngineNotifier extends Notifier<DrillState>
     if (!_sessions.beginFinish(session: session)) return;
 
     try {
+      final hadVideoSession =
+          (_activeConfig?.videoEnabled ?? false) || state.isRecording;
+      _invalidatePlayback();
       _timers.cancel();
       _timers.stop();
+      state = state.copyWith(
+        running: false,
+        paused: false,
+        holdRemaining: null,
+      );
+      await _stopAllCueChannels();
 
       //  Synchronize Stop Lock
       // If the ticker already triggered _stopAndSaveVideo (due to the 60s limit),
@@ -552,6 +653,13 @@ class DrillEngineNotifier extends Notifier<DrillState>
           debugPrint('[camera] Error while stopping video: $e');
           state = state.copyWith(isRecording: false);
         }
+      }
+
+      if (hadVideoSession) {
+        await _configureAudioSession(
+          videoEnabled: false,
+          force: true,
+        );
       }
 
       state = state.copyWith(
@@ -628,13 +736,8 @@ class DrillEngineNotifier extends Notifier<DrillState>
         isRecording: false,
       );
 
-      await _audioService.stopCues();
-
       if (playEndWhistle) {
-        await _audioService.playFirstAvailableOnCallout([
-          'assets/audio/callouts/whistle_end.wav',
-          'assets/audio/callouts/whistle_end.mp3',
-        ], waitForCompletion: true);
+        await _audioService.playWhistle(config ?? const DrillConfig());
       }
     } finally {
       await _disposeInternal();
@@ -646,6 +749,7 @@ class DrillEngineNotifier extends Notifier<DrillState>
     Duration hold,
     DrillConfig config,
     int session,
+    int playbackGeneration,
   ) {
     _timers.cancelAdLib();
 
@@ -659,7 +763,7 @@ class DrillEngineNotifier extends Notifier<DrillState>
     );
 
     _timers.scheduleAdLib(delay, () {
-      if (!_sessions.isCurrent(session) || state.finished || state.paused) {
+      if (!_isPlaybackActive(session, playbackGeneration)) {
         return;
       }
       final slot = _scheduler.pickOne(slots);
@@ -668,15 +772,58 @@ class DrillEngineNotifier extends Notifier<DrillState>
           slot,
           config,
           isPro: state.isPro,
-          shouldAbort: () =>
-              !_sessions.isCurrent(session) || state.finished || state.paused,
+          shouldAbort: () => !_isPlaybackActive(session, playbackGeneration),
         ),
       );
     });
   }
 
+  int _invalidatePlayback() => ++_playbackGeneration;
+
+  bool _isStartCurrent(int session, int playbackGeneration) {
+    return _sessions.isCurrent(session) &&
+        !_sessions.isFinishing &&
+        playbackGeneration == _playbackGeneration;
+  }
+
+  bool _isPlaybackActive(int session, int playbackGeneration) {
+    return _isStartCurrent(session, playbackGeneration) &&
+        state.running &&
+        !state.finished &&
+        !state.paused;
+  }
+
+  Future<void> _stopAllCueChannels() async {
+    final operation = _audioService.stopCues();
+    _cueStopBarrier = operation.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    try {
+      await operation;
+    } catch (e) {
+      debugPrint('[audio] Failed to stop all cue channels: $e');
+    }
+  }
+
+  Future<void> _configureAudioSession({
+    required bool videoEnabled,
+    bool force = false,
+  }) async {
+    try {
+      await _audioSessionService.configureForDrill(
+        videoEnabled: videoEnabled,
+        force: force,
+      );
+    } catch (e) {
+      debugPrint('[audio] Failed to configure the app audio session: $e');
+    }
+  }
+
   Future<void> _disposeInternal() async {
+    _invalidatePlayback();
     _timers.cancel();
+    await _cueStopBarrier;
     await _audioService.disposePlayers();
     _preparedStartKey = null;
     _nextCalloutToPlay = null;

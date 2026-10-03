@@ -1,0 +1,18 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /teamPhotoUploads/{uid}/{uploadId} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null && request.auth.uid == uid &&
+        request.resource.size <= 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    match /teamPhotos/{teamId}/{photoId} {
+      allow read: if request.auth != null &&
+        firestore.exists(/databases/(default)/documents/teams/$(teamId)/members/$(request.auth.uid));
+      allow write: if false;
+    }
+  }
+}

@@ -11,6 +11,7 @@ enum BadgeCategory {
   season,
   flex,
   premium,
+  social,
   secret,
 }
 
@@ -42,6 +43,8 @@ extension BadgeCategoryX on BadgeCategory {
         return 'flex';
       case BadgeCategory.premium:
         return 'premium';
+      case BadgeCategory.social:
+        return 'social';
       case BadgeCategory.secret:
         return 'secret';
     }
@@ -265,6 +268,15 @@ class BadgeStats {
   final int customCalloutWorkoutCount;
   final int premiumRecordingSaveCount;
   final int seasonPassWorkoutCount;
+  final int totalSharedWorkouts;
+  final int socialProgressPoints;
+  final int relayStreak;
+  final int friendWorkoutStreak;
+  final int bestPartnerStreak;
+  final int crewStreak;
+  final int totalQualifiedRelays;
+  final int totalCompletedFriendWorkouts;
+  final int totalCrewWeeks;
   final int lastWorkoutDurationSeconds;
   final DateTime? lastWorkoutAt;
   final DateTime? seasonTargetDate;
@@ -291,6 +303,15 @@ class BadgeStats {
     this.customCalloutWorkoutCount = 0,
     this.premiumRecordingSaveCount = 0,
     this.seasonPassWorkoutCount = 0,
+    this.totalSharedWorkouts = 0,
+    this.socialProgressPoints = 0,
+    this.relayStreak = 0,
+    this.friendWorkoutStreak = 0,
+    this.bestPartnerStreak = 0,
+    this.crewStreak = 0,
+    this.totalQualifiedRelays = 0,
+    this.totalCompletedFriendWorkouts = 0,
+    this.totalCrewWeeks = 0,
     this.lastWorkoutDurationSeconds = 0,
     this.lastWorkoutAt,
     this.seasonTargetDate,
@@ -318,6 +339,15 @@ class BadgeStats {
     int? customCalloutWorkoutCount,
     int? premiumRecordingSaveCount,
     int? seasonPassWorkoutCount,
+    int? totalSharedWorkouts,
+    int? socialProgressPoints,
+    int? relayStreak,
+    int? friendWorkoutStreak,
+    int? bestPartnerStreak,
+    int? crewStreak,
+    int? totalQualifiedRelays,
+    int? totalCompletedFriendWorkouts,
+    int? totalCrewWeeks,
     int? lastWorkoutDurationSeconds,
     DateTime? lastWorkoutAt,
     DateTime? seasonTargetDate,
@@ -355,6 +385,16 @@ class BadgeStats {
           premiumRecordingSaveCount ?? this.premiumRecordingSaveCount,
       seasonPassWorkoutCount:
           seasonPassWorkoutCount ?? this.seasonPassWorkoutCount,
+      totalSharedWorkouts: totalSharedWorkouts ?? this.totalSharedWorkouts,
+      socialProgressPoints: socialProgressPoints ?? this.socialProgressPoints,
+      relayStreak: relayStreak ?? this.relayStreak,
+      friendWorkoutStreak: friendWorkoutStreak ?? this.friendWorkoutStreak,
+      bestPartnerStreak: bestPartnerStreak ?? this.bestPartnerStreak,
+      crewStreak: crewStreak ?? this.crewStreak,
+      totalQualifiedRelays: totalQualifiedRelays ?? this.totalQualifiedRelays,
+      totalCompletedFriendWorkouts:
+          totalCompletedFriendWorkouts ?? this.totalCompletedFriendWorkouts,
+      totalCrewWeeks: totalCrewWeeks ?? this.totalCrewWeeks,
       lastWorkoutDurationSeconds:
           lastWorkoutDurationSeconds ?? this.lastWorkoutDurationSeconds,
       lastWorkoutAt: lastWorkoutAt ?? this.lastWorkoutAt,
@@ -385,6 +425,15 @@ class BadgeStats {
       'customCalloutWorkoutCount': customCalloutWorkoutCount,
       'premiumRecordingSaveCount': premiumRecordingSaveCount,
       'seasonPassWorkoutCount': seasonPassWorkoutCount,
+      'totalSharedWorkouts': totalSharedWorkouts,
+      'socialProgressPoints': socialProgressPoints,
+      'relayStreak': relayStreak,
+      'friendWorkoutStreak': friendWorkoutStreak,
+      'bestPartnerStreak': bestPartnerStreak,
+      'crewStreak': crewStreak,
+      'totalQualifiedRelays': totalQualifiedRelays,
+      'totalCompletedFriendWorkouts': totalCompletedFriendWorkouts,
+      'totalCrewWeeks': totalCrewWeeks,
       'lastWorkoutDurationSeconds': lastWorkoutDurationSeconds,
       'lastWorkoutAt': lastWorkoutAt?.toIso8601String(),
       'seasonTargetDate': seasonTargetDate?.toIso8601String(),
@@ -421,6 +470,16 @@ class BadgeStats {
           (map['premiumRecordingSaveCount'] as num?)?.toInt() ?? 0,
       seasonPassWorkoutCount:
           (map['seasonPassWorkoutCount'] as num?)?.toInt() ?? 0,
+      totalSharedWorkouts: (map['totalSharedWorkouts'] as num?)?.toInt() ?? 0,
+      socialProgressPoints: (map['socialProgressPoints'] as num?)?.toInt() ?? 0,
+      relayStreak: (map['relayStreak'] as num?)?.toInt() ?? 0,
+      friendWorkoutStreak: (map['friendWorkoutStreak'] as num?)?.toInt() ?? 0,
+      bestPartnerStreak: (map['bestPartnerStreak'] as num?)?.toInt() ?? 0,
+      crewStreak: (map['crewStreak'] as num?)?.toInt() ?? 0,
+      totalQualifiedRelays: (map['totalQualifiedRelays'] as num?)?.toInt() ?? 0,
+      totalCompletedFriendWorkouts:
+          (map['totalCompletedFriendWorkouts'] as num?)?.toInt() ?? 0,
+      totalCrewWeeks: (map['totalCrewWeeks'] as num?)?.toInt() ?? 0,
       lastWorkoutDurationSeconds:
           (map['lastWorkoutDurationSeconds'] as num?)?.toInt() ?? 0,
       lastWorkoutAt: _decodeDate(map['lastWorkoutAt']),
@@ -470,6 +529,33 @@ class WorkoutBadgeInput {
 
   bool get isStateChampOvertime =>
       workoutPresetId == 'overtime_state_champ_overtime';
+}
+
+@immutable
+class SocialBadgeInput {
+  const SocialBadgeInput({
+    required this.updatedAt,
+    required this.totalSharedWorkouts,
+    required this.socialProgressPoints,
+    required this.relayStreak,
+    required this.friendWorkoutStreak,
+    required this.bestPartnerStreak,
+    required this.crewStreak,
+    required this.totalQualifiedRelays,
+    required this.totalCompletedFriendWorkouts,
+    required this.totalCrewWeeks,
+  });
+
+  final DateTime updatedAt;
+  final int totalSharedWorkouts;
+  final int socialProgressPoints;
+  final int relayStreak;
+  final int friendWorkoutStreak;
+  final int bestPartnerStreak;
+  final int crewStreak;
+  final int totalQualifiedRelays;
+  final int totalCompletedFriendWorkouts;
+  final int totalCrewWeeks;
 }
 
 @immutable

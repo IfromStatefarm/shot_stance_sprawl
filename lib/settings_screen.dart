@@ -1,21 +1,19 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_theme.dart';
-import 'features/drill/presentation/widgets/settings_ad_lib_section.dart';
-import 'features/drill/presentation/widgets/settings_custom_callouts_section.dart';
-import 'features/drill/presentation/widgets/settings_purchase_section.dart';
-import 'features/drill/presentation/widgets/settings_profile_section.dart';
-import 'features/drill/providers.dart';
-import 'features/onboarding/onboarding.dart';
-import 'features/onboarding/workout_reminder_notifications.dart';
-import 'features/recordings/saved_recordings_provider.dart';
+import 'core/local_file_storage.dart';
+import 'features/account/account.dart';
+import 'features/compliance/compliance.dart';
+import 'features/drill/drill.dart';
+import 'features/drill/presentation/settings_presentation.dart';
+import 'features/onboarding/onboarding_feature.dart';
+import 'features/onboarding/season_schedule.dart';
+import 'features/recordings/recordings.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -44,8 +42,8 @@ class SettingsScreen extends ConsumerWidget {
         title: Text(isEs ? 'Borrar datos locales' : 'Delete local data'),
         content: Text(
           isEs
-              ? 'Esto borra perfil, progreso, grabaciones, comandos y ajustes guardados en este dispositivo.'
-              : 'This removes the profile, progress, review videos, callouts, and saved settings on this device.',
+              ? 'Esto borra perfil, progreso, grabaciones, comandos y ajustes guardados en este dispositivo. Se conserva el rango de edad requerido para seguridad.'
+              : 'This removes the profile, progress, review videos, callouts, and saved settings on this device. The required age-range safety choice is retained.',
         ),
         actions: [
           TextButton(
@@ -86,26 +84,30 @@ class SettingsScreen extends ConsumerWidget {
     };
 
     for (final path in localPaths) {
-      await _deleteFileIfLocal(path);
+      await LocalFileStorage.deleteLocalFileIfExists(
+        path,
+        debugLabel: 'Could not delete local file',
+      );
     }
 
-    try {
-      final docs = await getApplicationDocumentsDirectory();
-      final recordingsDir = Directory(
-        '${docs.path}${Platform.pathSeparator}recordings',
-      );
-      if (await recordingsDir.exists()) {
-        await recordingsDir.delete(recursive: true);
-      }
-    } catch (e) {
-      debugPrint('Could not delete recordings directory: $e');
-    }
+    await LocalFileStorage.deleteDirectoryIfExists(
+      await LocalStoragePaths.recordingsDirectory(),
+      recursive: true,
+      debugLabel: 'Could not delete recordings directory',
+    );
 
     final prefs = await ref.read(sharedPrefsProvider.future);
+    final ageEligibility = ref.read(ageEligibilityProvider).selection;
     await ref
         .read(workoutReminderNotificationsProvider)
         .cancelWorkoutReminders();
     await prefs.clear();
+    if (ageEligibility != null) {
+      await prefs.setString(
+        AgeEligibilityStorage.preferenceKey,
+        ageEligibility.name,
+      );
+    }
     await ref.read(languageProvider.notifier).setLanguage('en');
 
     ref.invalidate(sharedPrefsProvider);
@@ -127,24 +129,6 @@ class SettingsScreen extends ConsumerWidget {
         ),
       ),
     );
-  }
-
-  Future<void> _deleteFileIfLocal(String path) async {
-    if (path.isEmpty ||
-        path.startsWith('assets/') ||
-        path.startsWith('http://') ||
-        path.startsWith('https://')) {
-      return;
-    }
-
-    try {
-      final file = File(path);
-      if (await file.exists()) {
-        await file.delete();
-      }
-    } catch (e) {
-      debugPrint('Could not delete local file: $e');
-    }
   }
 
   Future<void> _setWorkoutReminders(
@@ -203,6 +187,7 @@ class SettingsScreen extends ConsumerWidget {
     final config = ref.watch(drillConfigProvider);
     final calloutButtonStyle = ref.watch(calloutButtonStyleProvider);
     final onboarding = ref.watch(onboardingProvider);
+    final ageEligibility = ref.watch(ageEligibilityProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -216,13 +201,44 @@ class SettingsScreen extends ConsumerWidget {
             child: const SettingsProfileHeader(),
           ),
           _SettingsGroup(
-            title: isEs ? 'Idioma' : 'Language',
-            child: _LanguagePicker(
-              currentLang: currentLang,
-              onChanged: (languageCode) => unawaited(
-                ref.read(languageProvider.notifier).setLanguage(languageCode),
+            title: isEs ? 'Temporada de lucha' : 'Wrestling season',
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: DropdownButtonFormField<String>(
+                initialValue: seasonDatesByState
+                        .containsKey(onboarding.profile?.stateName)
+                    ? onboarding.profile!.stateName
+                    : null,
+                decoration: InputDecoration(
+                  labelText: isEs ? 'Estado' : 'State',
+                  helperText: isEs
+                      ? 'Usado para la cuenta regresiva de temporada'
+                      : 'Used for the season countdown',
+                  border: const OutlineInputBorder(),
+                ),
+                items: [
+                  for (final stateName in seasonDatesByState.keys)
+                    DropdownMenuItem(value: stateName, child: Text(stateName)),
+                ],
+                onChanged: onboarding.profile == null
+                    ? null
+                    : (stateName) {
+                        if (stateName != null) {
+                          unawaited(ref
+                              .read(onboardingProvider.notifier)
+                              .setStateName(stateName));
+                        }
+                      },
               ),
             ),
+          ),
+          _SettingsGroup(
+            title: isEs ? 'Cuenta y equipo' : 'Account and team',
+            child: AccountSettingsCard(isEs: isEs),
+          ),
+          _SettingsGroup(
+            title: isEs ? 'Idioma' : 'Language',
+            child: const SettingsLanguageSelector(),
           ),
           _SettingsGroup(
             title: isEs ? 'Apariencia' : 'Look',
@@ -259,6 +275,8 @@ class SettingsScreen extends ConsumerWidget {
             title: isEs ? 'Audio' : 'Audio',
             child: Column(
               children: [
+                const SettingsVoicePackSelector(),
+                const Divider(height: 1),
                 SwitchListTile(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                   secondary: const Icon(Icons.record_voice_over),
@@ -320,6 +338,16 @@ class SettingsScreen extends ConsumerWidget {
             title: isEs ? 'Privacidad y datos' : 'Privacy and data',
             child: Column(
               children: [
+                ListTile(
+                  leading: const Icon(Icons.person_outline),
+                  title: Text(isEs ? 'Rango de edad' : 'Age range'),
+                  subtitle: Text(
+                    ageEligibility.selection == null
+                        ? (isEs ? 'No seleccionado' : 'Not selected')
+                        : ageEligibility.selection!.label,
+                  ),
+                ),
+                const Divider(height: 1),
                 SwitchListTile(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                   secondary: const Icon(Icons.videocam_outlined),
@@ -345,7 +373,9 @@ class SettingsScreen extends ConsumerWidget {
                       Text(isEs ? 'Politica de privacidad' : 'Privacy Policy'),
                   trailing: const Icon(Icons.open_in_new, size: 18),
                   onTap: () => unawaited(
-                    _launchURL('https://keepkidswrestling.com/privacy'),
+                    _launchURL(
+                      'https://keepkidswrestling.com/Snap-and-go/privacy',
+                    ),
                   ),
                 ),
                 const Divider(height: 1),
@@ -417,110 +447,6 @@ class _SettingsGroup extends StatelessWidget {
             child: child,
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _LanguagePicker extends StatelessWidget {
-  static const _englishFlag = 'assets/images/language/american_flag_icon.png';
-  static const _spanishFlag = 'assets/images/language/mexican_flag_icon.png';
-
-  final String currentLang;
-  final ValueChanged<String> onChanged;
-
-  const _LanguagePicker({
-    required this.currentLang,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(12),
-      child: Row(
-        children: [
-          Expanded(
-            child: _FlagChoice(
-              asset: _englishFlag,
-              label: 'English',
-              selected: currentLang == 'en',
-              onTap: () => onChanged('en'),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _FlagChoice(
-              asset: _spanishFlag,
-              label: 'Espanol',
-              selected: currentLang == 'es',
-              onTap: () => onChanged('es'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FlagChoice extends StatelessWidget {
-  final String asset;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _FlagChoice({
-    required this.asset,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: label,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: selected ? AppBrandColors.red : scheme.outlineVariant,
-              width: selected ? 2 : 1,
-            ),
-            color: selected
-                ? AppBrandColors.red.withValues(alpha: 0.08)
-                : scheme.surface,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Image.asset(
-                asset,
-                width: 56,
-                height: 56,
-                fit: BoxFit.contain,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                    ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

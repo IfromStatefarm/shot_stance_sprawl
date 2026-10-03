@@ -139,6 +139,27 @@ class BadgeEngine {
     ).state;
   }
 
+  BadgeProgressState recordSocialProgress(
+    BadgeProgressState state,
+    SocialBadgeInput input,
+  ) {
+    final stats = state.stats.copyWith(
+      totalSharedWorkouts: input.totalSharedWorkouts,
+      socialProgressPoints: input.socialProgressPoints,
+      relayStreak: input.relayStreak,
+      friendWorkoutStreak: input.friendWorkoutStreak,
+      bestPartnerStreak: input.bestPartnerStreak,
+      crewStreak: input.crewStreak,
+      totalQualifiedRelays: input.totalQualifiedRelays,
+      totalCompletedFriendWorkouts: input.totalCompletedFriendWorkouts,
+      totalCrewWeeks: input.totalCrewWeeks,
+    );
+    return _evaluateAll(
+      state.copyWith(stats: stats),
+      at: input.updatedAt,
+    ).state;
+  }
+
   BadgeProgressState recordCustomCalloutCreated(
     BadgeProgressState state, {
     required int customCalloutCount,
@@ -293,6 +314,24 @@ class BadgeEngine {
                 _totalEstimatedReps(stats) >= 5000
             ? 1
             : 0;
+      case 'social.points':
+        return stats.socialProgressPoints;
+      case 'social.shared_workouts':
+        return stats.totalSharedWorkouts;
+      case 'social.relay_streak':
+        return stats.relayStreak;
+      case 'social.friend_streak':
+        return stats.friendWorkoutStreak;
+      case 'social.partner_streak':
+        return stats.bestPartnerStreak;
+      case 'social.crew_streak':
+        return stats.crewStreak;
+      case 'social.qualified_relays':
+        return stats.totalQualifiedRelays;
+      case 'social.completed_friend_workouts':
+        return stats.totalCompletedFriendWorkouts;
+      case 'social.crew_weeks':
+        return stats.totalCrewWeeks;
       default:
         return previous.currentProgress;
     }

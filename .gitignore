@@ -27,11 +27,17 @@ migrate_working_dir/
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
+.dart_appdata/
+.firebase_cli_home/
+functions/firestore-debug.log
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
 /build/
 /coverage/
+.firebase/
+firebase-debug.log
+firebase-export/
 
 # Symbolication related
 app.*.symbols
@@ -43,3 +49,14 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+# Firebase Functions dependencies and generated emulator output
+functions/node_modules/
+functions/firebase-debug.log
+functions/.runtimeconfig.json
+functions/.secret.local
+.dart_state/
+.firebase_state/
+functions/.env.local
+
+# Local Apple signing selection. Commit the example, not a developer's Team ID.
+/ios/Flutter/Signing.xcconfig
